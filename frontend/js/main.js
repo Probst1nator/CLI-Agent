@@ -1924,104 +1924,142 @@ class VisualResponseApp {
             // Clear manual override - let backend state control TTS
             this.speakModeManualOverride = false;
 
-            // Send voice command to agent
-            if (this.wsManager && this.wsManager.isConnected()) {
-                this.wsManager.sendMessage('/voice');
-
-                // Visual feedback - toggle active state
-                const wasActive = this.voiceBtn.classList.contains('active');
-                this.voiceBtn.classList.toggle('active');
-                const isActive = this.voiceBtn.classList.contains('active');
-
-                // If voice is activated, enable speak mode
-                if (isActive) {
-                    this.speakModeEnabled = true;
-                    this.speakBtn.classList.add('active');
-                    this.speakBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 5L6 9H2V15H6L11 19V5Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15.54 8.46C16.4774 9.39764 17.0039 10.6692 17.0039 11.995C17.0039 13.3208 16.4774 14.5924 15.54 15.53" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.07 5.93C19.9447 7.80528 20.9979 10.3453 20.9979 13C20.9979 15.6547 19.9447 18.1947 18.07 20.07" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-                    this.speakBtn.title = 'Speak mode enabled - click to disable';
-                    console.log('🔊 Speak mode auto-enabled with voice mode');
+            // Voice input works locally without WebSocket
+            // Only show warning if disconnected (but don't block recording)
+            if (!this.wsManager || !this.wsManager.isConnected()) {
+                if (typeof showToast === 'function') {
+                    showToast('⚠️ Not connected to agent - you can still record but won\'t be able to send until reconnected', 'warning');
                 }
+            }
 
-                // Handle microphone recording
-                if (this.audioManager) {
-                    // Check if VAD mode is enabled
-                    const vadToggle = document.getElementById('vad-toggle');
-                    const vadEnabled = vadToggle && vadToggle.checked;
+            // Visual feedback - toggle active state
+            const wasActive = this.voiceBtn.classList.contains('active');
+            this.voiceBtn.classList.toggle('active');
+            const isActive = this.voiceBtn.classList.contains('active');
 
-                    if (isActive) {
-                        // Start recording (VAD or manual)
-                        try {
-                            if (vadEnabled) {
-                                window.logDebug('🎤 Starting VAD recording (auto-stop on silence)');
-                                this.voiceBtn.classList.add('vad-listening');
+            // If voice is activated, enable speak mode
+            if (isActive) {
+                this.speakModeEnabled = true;
+                this.speakBtn.classList.add('active');
+                this.speakBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 5L6 9H2V15H6L11 19V5Z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15.54 8.46C16.4774 9.39764 17.0039 10.6692 17.0039 11.995C17.0039 13.3208 16.4774 14.5924 15.54 15.53" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.07 5.93C19.9447 7.80528 20.9979 10.3453 20.9979 13C20.9979 15.6547 19.9447 18.1947 18.07 20.07" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+                this.speakBtn.title = 'Speak mode enabled - click to disable';
+                console.log('🔊 Speak mode auto-enabled with voice mode');
+            }
 
-                                const transcription = await this.audioManager.startRecordingWithVAD();
+            // Handle microphone recording
+            if (this.audioManager) {
+                // Check if VAD mode is enabled
+                const vadToggle = document.getElementById('vad-toggle');
+                const vadEnabled = vadToggle && vadToggle.checked;
 
-                                this.voiceBtn.classList.remove('vad-listening', 'vad-recording');
-                                window.logDebug('🎤 VAD recording complete, transcription:', transcription);
+                if (isActive) {
+                    // Start recording (VAD or manual)
+                    try {
+                        if (vadEnabled) {
+                            window.logDebug('🎤 Starting VAD recording (auto-stop on silence)');
+                            this.voiceBtn.classList.add('vad-listening');
 
-                                if (transcription && this.wsManager) {
-                                    this.wsManager.sendMessage(transcription);
+                            const transcription = await this.audioManager.startRecordingWithVAD();
+
+                            this.voiceBtn.classList.remove('vad-listening', 'vad-recording');
+                            window.logDebug('🎤 VAD recording complete, transcription:', transcription);
+
+                            // Populate input field with transcription for user review
+                            if (transcription && transcription.trim()) {
+                                this.chatInput.value = transcription.trim();
+                                this.chatInput.focus();
+
+                                // Show success feedback
+                                if (typeof showToast === 'function') {
+                                    showToast('🎤 Transcription ready - review and press Enter to send', 'success');
                                 }
 
-                                this.voiceBtn.classList.remove('active');
-                                this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
+                                window.logDebug('✓ Transcription populated in input field');
                             } else {
-                                window.logDebug('🎤 Starting manual recording');
-                                await this.audioManager.startRecording();
+                                window.logWarn('⚠️ Empty transcription received');
+                                if (typeof showToast === 'function') {
+                                    showToast('No speech detected - please try again', 'warning');
+                                }
+                            }
+
+                            // Reset button to inactive state
+                            this.voiceBtn.classList.remove('active');
+                            this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
+                        } else {
+                            window.logDebug('🎤 Starting manual recording');
+                            await this.audioManager.startRecording();
+                        }
+                    } catch (error) {
+                        console.error('Failed to start recording:', error);
+
+                        // Show user-friendly error message
+                        if (typeof showToast === 'function') {
+                            const errorMsg = error.message || 'Unknown error';
+                            if (errorMsg.includes('Permission') || errorMsg.includes('NotAllowed')) {
+                                showToast('❌ Microphone access denied - please allow microphone access in browser settings', 'error');
+                            } else if (errorMsg.includes('NotFound')) {
+                                showToast('❌ No microphone found - please connect a microphone', 'error');
+                            } else {
+                                showToast(`❌ Recording failed: ${errorMsg}`, 'error');
+                            }
+                        }
+
+                        // Revert button state on error
+                        this.voiceBtn.classList.remove('active', 'vad-listening', 'vad-recording');
+                        return;
+                    }
+                } else {
+                    // Stop manual recording and populate input field (VAD auto-stops)
+                    if (!vadEnabled) {
+                        try {
+                            const transcription = await this.audioManager.stopRecording();
+                            window.logDebug('🎤 Recording stopped, transcription:', transcription);
+
+                            // Populate input field with transcription for user review
+                            if (transcription && transcription.trim()) {
+                                this.chatInput.value = transcription.trim();
+                                this.chatInput.focus();
+
+                                // Show success feedback
+                                if (typeof showToast === 'function') {
+                                    showToast('🎤 Transcription ready - review and press Enter to send', 'success');
+                                }
+
+                                window.logDebug('✓ Transcription populated in input field');
+                            } else {
+                                window.logWarn('⚠️ Empty transcription received');
+                                if (typeof showToast === 'function') {
+                                    showToast('No speech detected - please try again', 'warning');
+                                }
                             }
                         } catch (error) {
-                            console.error('Failed to start recording:', error);
-                            // Revert button state on error
-                            this.voiceBtn.classList.remove('active', 'vad-listening', 'vad-recording');
-                            return;
-                        }
-                    } else {
-                        // Stop manual recording and send audio (VAD auto-stops)
-                        if (!vadEnabled) {
-                            try {
-                                const transcription = await this.audioManager.stopRecording();
-                                window.logDebug('🎤 Recording stopped, transcription:', transcription);
-                                if (transcription && this.wsManager) {
-                                    this.wsManager.sendMessage(transcription);
-                                }
-                            } catch (error) {
-                                console.error('Failed to stop recording:', error);
+                            console.error('Failed to stop recording:', error);
+
+                            // Show user-friendly error message
+                            if (typeof showToast === 'function') {
+                                showToast(`❌ Recording failed: ${error.message || 'Unknown error'}`, 'error');
                             }
                         }
                     }
                 }
-
-                // Change icon based on state
-                if (isActive) {
-                    // Show microphone with "active" styling
-                    this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" fill="currentColor"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
-                    this.voiceBtn.title = 'Voice mode enabled - click to disable';
-                } else {
-                    // Show regular microphone icon
-                    this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
-                    this.voiceBtn.title = 'Toggle voice mode (mic input + TTS) - /voice';
-                }
-
-                // Brief feedback animation
-                this.voiceBtn.style.transform = 'scale(0.95)';
-                setTimeout(() => {
-                    this.voiceBtn.style.transform = '';
-                }, 150);
-
-            } else {
-                console.warn('WebSocket not connected, voice command not sent');
-
-                // Visual feedback for connection error
-                const originalIcon = this.voiceBtn.innerHTML;
-                this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2"/></svg>';
-                this.voiceBtn.style.borderColor = '#dc3545';
-
-                setTimeout(() => {
-                    this.voiceBtn.innerHTML = originalIcon;
-                    this.voiceBtn.style.borderColor = '';
-                }, 1500);
             }
+
+            // Change icon based on state
+            if (isActive) {
+                // Show microphone with "active" styling
+                this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" fill="currentColor"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
+                this.voiceBtn.title = 'Recording - click to stop';
+            } else {
+                // Show regular microphone icon
+                this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
+                this.voiceBtn.title = 'Voice input - click to start recording';
+            }
+
+            // Brief feedback animation
+            this.voiceBtn.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.voiceBtn.style.transform = '';
+            }, 150);
         });
 
         this.setupVolumeSlider();

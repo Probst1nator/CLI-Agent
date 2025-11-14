@@ -651,25 +651,6 @@ class AudioManager {
     }
 
     /**
-     * Stop currently playing audio
-     *
-     * Pauses and clears the current Audio element.
-     * Note: This is a duplicate method - there's another stopAudio() below
-     * that also clears the queue.
-     *
-     * @returns {void}
-     */
-    stopAudio() {
-        if (this.playingAudio) {
-            this.playingAudio.pause();
-            this.playingAudio = null;
-            this.isTTSActive = false;
-            this.hideTTSStatus();
-            console.log('Audio playback stopped');
-        }
-    }
-
-    /**
      * Show TTS status indicator in UI
      *
      * Creates or updates a floating status indicator element
@@ -860,8 +841,8 @@ class AudioManager {
     /**
      * Stop currently playing audio and clear queue
      *
-     * This is the main stopAudio() method that also clears the queue.
-     * Note: There's a duplicate stopAudio() method above that only stops current playback.
+     * Stops any active TTS playback, clears the audio queue,
+     * and resets all playback state.
      *
      * @returns {void}
      */
@@ -872,6 +853,10 @@ class AudioManager {
             this.playingAudio = null;
             console.log('Audio stopped');
         }
+
+        // Clear TTS state
+        this.isTTSActive = false;
+        this.hideTTSStatus();
 
         // Clear queue and revoke URLs
         this.audioQueue.forEach(item => {
