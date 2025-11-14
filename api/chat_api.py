@@ -182,6 +182,21 @@ async def new_chat(request: Any) -> Any:
             except Exception as e:
                 logger.warning(f"Failed to archive current chat: {e}")
 
+        # Cancel any pending permissions when switching chats
+        # This unblocks the permission prompt by sending a cancel signal
+        if hasattr(g, 'permission_response_queue'):
+            try:
+                # Send cancel response to unblock any waiting permission prompt
+                g.permission_response_queue.put_nowait({
+                    'type': 'permission_response',
+                    'result': 'deny',
+                    'cancelled': True,
+                    'reason': 'Chat switched - permission request cancelled'
+                })
+                logger.info("Sent cancellation signal for pending permissions (chat switch)")
+            except Exception as e:
+                logger.debug(f"Could not send permission cancellation: {e}")
+
         # Create new chat
         try:
             # Import here to avoid circular dependency

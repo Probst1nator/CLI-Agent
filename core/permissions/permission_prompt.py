@@ -175,14 +175,24 @@ async def _try_gui_permission_prompt(
 
         session.send_update(permission_payload)
 
-        # Wait for response from visual interface (no timeout - wait indefinitely)
-        if hasattr(g, 'visual_input_queue'):
+        # Wait for response from visual interface with timeout to allow deferral
+        if hasattr(g, 'permission_response_queue'):
             try:
-                response_data = await g.visual_input_queue.get()
+                # 60 second timeout allows user to defer/switch chats
+                response_data = await asyncio.wait_for(
+                    g.permission_response_queue.get(),
+                    timeout=60.0
+                )
 
                 if response_data and isinstance(response_data, dict):
                     result = response_data.get('result')
                     rule_selected = response_data.get('rule')  # Specific rule chosen by user
+                    cancelled = response_data.get('cancelled', False)
+
+                    # Handle cancellation (e.g., user switched chats)
+                    if cancelled:
+                        print(colored(f"⚠️  Permission cancelled: {response_data.get('reason', 'Unknown reason')}", "yellow"))
+                        return False
 
                     if result == 'allow':
                         print(colored("✅ Permission granted (GUI)", "green"))
@@ -228,6 +238,12 @@ async def _try_gui_permission_prompt(
                     elif result == 'deny':
                         print(colored("❌ Permission denied (GUI)", "red"))
                         return False
+
+            except asyncio.TimeoutError:
+                # Timeout means user deferred decision (e.g., switched chats)
+                print(colored("⏱️  Permission request timed out - denying by default", "yellow"))
+                print(colored("   (User may have switched chats or deferred decision)", "yellow"))
+                return False
 
             except Exception as e:
                 print(colored(f"⚠️  GUI permission error: {e} - denying by default", "yellow"))

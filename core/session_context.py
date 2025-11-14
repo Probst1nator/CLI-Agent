@@ -32,6 +32,7 @@ class SessionContext:
         voice_mode: Whether voice input/output is enabled
         tts_only_mode: Whether to only use TTS (no transcription)
         auto_execute: Whether to auto-execute tool calls
+        pending_permission: Currently pending permission request (if any)
         created_at: When this session was created
         last_activity: Last activity timestamp for cleanup
         user_id: Future: Link to user account system
@@ -43,6 +44,7 @@ class SessionContext:
     voice_mode: bool = False
     tts_only_mode: bool = False
     auto_execute: bool = False
+    pending_permission: Optional[dict] = None  # Tracks pending permission request
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_activity: datetime = field(default_factory=datetime.utcnow)
 
@@ -75,6 +77,19 @@ class SessionContext:
         """Add image to current session"""
         self.current_images.append(base64_image)
 
+    def set_pending_permission(self, permission_data: dict):
+        """Set pending permission request for this session"""
+        self.pending_permission = permission_data
+        self.update_activity()
+
+    def clear_pending_permission(self):
+        """Clear pending permission request"""
+        self.pending_permission = None
+
+    def has_pending_permission(self) -> bool:
+        """Check if there's a pending permission request"""
+        return self.pending_permission is not None
+
     def get_state_dict(self) -> dict:
         """Get session state as dictionary for frontend"""
         return {
@@ -82,6 +97,7 @@ class SessionContext:
             'voice_mode': self.voice_mode,
             'tts_only_mode': self.tts_only_mode,
             'auto_execute': self.auto_execute,
+            'has_pending_permission': self.has_pending_permission(),
             'created_at': self.created_at.isoformat(),
             'last_activity': self.last_activity.isoformat(),
             'message_count': len(self.chat.messages) if self.chat else 0,

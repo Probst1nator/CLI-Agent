@@ -551,9 +551,14 @@ class VisualServer:
                 message_type = message_data.get('type')
 
                 if message_type == 'permission_response':
-                    # Permission response - forward to input queue
-                    if hasattr(g, 'visual_input_queue'):
+                    # Permission response - forward to dedicated permission queue
+                    if hasattr(g, 'permission_response_queue'):
+                        g.permission_response_queue.put_nowait(message_data)
+                        logger.debug(f"Routed permission response to permission_response_queue")
+                    elif hasattr(g, 'visual_input_queue'):
+                        # Fallback to old queue for backward compatibility
                         g.visual_input_queue.put_nowait(message_data)
+                        logger.warning("Using legacy visual_input_queue for permission response")
 
                 elif message_type == 'interrupt_signal':
                     # Interrupt signal
