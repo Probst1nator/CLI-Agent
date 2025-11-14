@@ -195,7 +195,7 @@ class PromptRegenerator:
             List of lowercase tokens
         """
         # Simple tokenization: lowercase, split on non-alphanumeric
-        tokens = re.findall(r'\w+', text.lower())
+        tokens = re.findall(r"\w+", text.lower())
         return tokens
 
     def _read_file_content(self, file_path: Path) -> str | None:
@@ -212,16 +212,36 @@ class PromptRegenerator:
             suffix = file_path.suffix.lower()
 
             # Plain text files
-            if suffix in {'.txt', '.md', '.py', '.cpp', '.c', '.h', '.java',
-                         '.js', '.ts', '.rs', '.go', '.json', '.yaml', '.yml',
-                         '.xml', '.tex', '.html', '.htm', '.css', '.csv'}:
-                with open(file_path, encoding='utf-8', errors='ignore') as f:
+            if suffix in {
+                ".txt",
+                ".md",
+                ".py",
+                ".cpp",
+                ".c",
+                ".h",
+                ".java",
+                ".js",
+                ".ts",
+                ".rs",
+                ".go",
+                ".json",
+                ".yaml",
+                ".yml",
+                ".xml",
+                ".tex",
+                ".html",
+                ".htm",
+                ".css",
+                ".csv",
+            }:
+                with open(file_path, encoding="utf-8", errors="ignore") as f:
                     return f.read()
 
             # PDF files
-            elif suffix == '.pdf':
+            elif suffix == ".pdf":
                 try:
                     import fitz  # PyMuPDF
+
                     doc = fitz.open(file_path)
                     text = ""
                     for page in doc:
@@ -233,38 +253,47 @@ class PromptRegenerator:
                     return None
 
             # Office documents - use readfile tool's logic
-            elif suffix in {'.docx', '.doc', '.pptx', '.ppt', '.xlsx', '.xls',
-                           '.odt', '.ods', '.odp'}:
+            elif suffix in {
+                ".docx",
+                ".doc",
+                ".pptx",
+                ".ppt",
+                ".xlsx",
+                ".xls",
+                ".odt",
+                ".ods",
+                ".odp",
+            }:
                 # For now, skip office docs in indexing (can be enhanced later)
                 # TODO: Implement office doc text extraction for BM25
                 logger.debug(f"Skipping office document for BM25: {file_path}")
                 return None
 
             # Jupyter notebooks
-            elif suffix == '.ipynb':
+            elif suffix == ".ipynb":
                 try:
-                    with open(file_path, encoding='utf-8') as f:
+                    with open(file_path, encoding="utf-8") as f:
                         nb_data = json.load(f)
                         text_parts = []
-                        for cell in nb_data.get('cells', []):
-                            source = cell.get('source', [])
+                        for cell in nb_data.get("cells", []):
+                            source = cell.get("source", [])
                             if isinstance(source, list):
-                                text_parts.append(''.join(source))
+                                text_parts.append("".join(source))
                             else:
                                 text_parts.append(source)
-                        return '\n'.join(text_parts)
+                        return "\n".join(text_parts)
                 except Exception as e:
                     logger.debug(f"Failed to read notebook {file_path}: {e}")
                     return None
 
             # Image files - skip for now
-            elif suffix in {'.png', '.jpg', '.jpeg', '.tiff', '.tif', '.gif', '.svg'}:
+            elif suffix in {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".gif", ".svg"}:
                 return None
 
             else:
                 # Try reading as text
                 try:
-                    with open(file_path, encoding='utf-8', errors='ignore') as f:
+                    with open(file_path, encoding="utf-8", errors="ignore") as f:
                         return f.read()
                 except:
                     return None
@@ -288,12 +317,45 @@ class PromptRegenerator:
 
         # Use same allowed extensions as find_recent_files
         allowed_extensions = {
-            '.txt', '.md', '.pdf', '.py', '.ipynb', '.cpp', '.c', '.h',
-            '.java', '.js', '.ts', '.rs', '.go', '.png', '.jpg', '.jpeg',
-            '.tiff', '.tif', '.gif', '.svg', '.docx', '.doc', '.pptx',
-            '.ppt', '.xlsx', '.xls', '.odt', '.ods', '.odp', '.odg',
-            '.csv', '.json', '.yaml', '.yml', '.xml', '.tex', '.html',
-            '.htm', '.css'
+            ".txt",
+            ".md",
+            ".pdf",
+            ".py",
+            ".ipynb",
+            ".cpp",
+            ".c",
+            ".h",
+            ".java",
+            ".js",
+            ".ts",
+            ".rs",
+            ".go",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".tiff",
+            ".tif",
+            ".gif",
+            ".svg",
+            ".docx",
+            ".doc",
+            ".pptx",
+            ".ppt",
+            ".xlsx",
+            ".xls",
+            ".odt",
+            ".ods",
+            ".odp",
+            ".odg",
+            ".csv",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".xml",
+            ".tex",
+            ".html",
+            ".htm",
+            ".css",
         }
 
         files_with_mtime = []
@@ -353,10 +415,10 @@ class PromptRegenerator:
             return False
 
         try:
-            with open(metadata_path, encoding='utf-8') as f:
+            with open(metadata_path, encoding="utf-8") as f:
                 metadata = json.load(f)
 
-            cached_files = metadata.get('files', {})
+            cached_files = metadata.get("files", {})
 
             # Check if same number of files
             if len(cached_files) != len(all_files):
@@ -387,7 +449,7 @@ class PromptRegenerator:
         self,
         bm25_index: BM25Plus,
         file_paths: list[Path],
-        all_files: list[tuple[Path, datetime]]
+        all_files: list[tuple[Path, datetime]],
     ) -> None:
         """
         Save BM25 index and metadata to cache.
@@ -403,23 +465,19 @@ class PromptRegenerator:
 
             # Save index
             index_path = self.bm25_cache_dir / "index.pkl"
-            with open(index_path, 'wb') as f:
-                pickle.dump({
-                    'bm25': bm25_index,
-                    'file_paths': file_paths
-                }, f)
+            with open(index_path, "wb") as f:
+                pickle.dump({"bm25": bm25_index, "file_paths": file_paths}, f)
 
             # Save metadata
             metadata = {
-                'last_indexed': datetime.now().isoformat(),
-                'files': {
-                    str(file_path): mtime.timestamp()
-                    for file_path, mtime in all_files
-                }
+                "last_indexed": datetime.now().isoformat(),
+                "files": {
+                    str(file_path): mtime.timestamp() for file_path, mtime in all_files
+                },
             }
 
             metadata_path = self.bm25_cache_dir / "metadata.json"
-            with open(metadata_path, 'w', encoding='utf-8') as f:
+            with open(metadata_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2)
 
             logger.info(f"Saved BM25 cache with {len(file_paths)} files")
@@ -440,11 +498,11 @@ class PromptRegenerator:
             return None
 
         try:
-            with open(index_path, 'rb') as f:
+            with open(index_path, "rb") as f:
                 data = pickle.load(f)
 
-            bm25_index = data['bm25']
-            file_paths = data['file_paths']
+            bm25_index = data["bm25"]
+            file_paths = data["file_paths"]
 
             logger.info(f"Loaded BM25 cache with {len(file_paths)} files")
             return bm25_index, file_paths
@@ -504,10 +562,7 @@ class PromptRegenerator:
         return bm25_index, file_paths
 
     def search_files_with_bm25(
-        self,
-        query: str,
-        top_n: int = 20,
-        return_top_recent: int = 5
+        self, query: str, top_n: int = 20, return_top_recent: int = 5
     ) -> list[tuple[Path, str]] | None:
         """
         Search files using BM25 and return top recent matches.
@@ -541,11 +596,9 @@ class PromptRegenerator:
         scores = bm25_index.get_scores(query_tokens)
 
         # Get top N indices
-        top_indices = sorted(
-            range(len(scores)),
-            key=lambda i: scores[i],
-            reverse=True
-        )[:top_n]
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[
+            :top_n
+        ]
 
         logger.info(f"Got {len(top_indices)} BM25 results")
 
@@ -576,16 +629,14 @@ class PromptRegenerator:
             content = self._read_file_content(file_path)
             if content:
                 results.append((file_path, content))
-                logger.debug(f"  - {file_path} (score: {score:.2f}, modified: {mtime.strftime('%Y-%m-%d')})")
+                logger.debug(
+                    f"  - {file_path} (score: {score:.2f}, modified: {mtime.strftime('%Y-%m-%d')})"
+                )
 
         return results if results else None
 
     def extract_relevant_content(
-        self,
-        content: str,
-        query: str,
-        max_chars: int = 5000,
-        num_excerpts: int = 3
+        self, content: str, query: str, max_chars: int = 5000, num_excerpts: int = 3
     ) -> str:
         """
         Extract relevant excerpts from large file content using BM25.
@@ -610,12 +661,12 @@ class PromptRegenerator:
         paragraphs = []
 
         # First try double newlines (typical paragraph separator)
-        if '\n\n' in content:
-            paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+        if "\n\n" in content:
+            paragraphs = [p.strip() for p in content.split("\n\n") if p.strip()]
         # Fall back to single newlines
-        elif '\n' in content:
+        elif "\n" in content:
             # Group consecutive lines into chunks of ~500 chars
-            lines = content.split('\n')
+            lines = content.split("\n")
             current_chunk = []
             current_length = 0
 
@@ -624,7 +675,7 @@ class PromptRegenerator:
                 current_length += len(line)
 
                 if current_length >= 500:
-                    chunk_text = '\n'.join(current_chunk).strip()
+                    chunk_text = "\n".join(current_chunk).strip()
                     if chunk_text:
                         paragraphs.append(chunk_text)
                     current_chunk = []
@@ -632,12 +683,12 @@ class PromptRegenerator:
 
             # Add remaining chunk
             if current_chunk:
-                chunk_text = '\n'.join(current_chunk).strip()
+                chunk_text = "\n".join(current_chunk).strip()
                 if chunk_text:
                     paragraphs.append(chunk_text)
         else:
             # No newlines, split by sentences (periods followed by space)
-            paragraphs = [s.strip() for s in re.split(r'\.\s+', content) if s.strip()]
+            paragraphs = [s.strip() for s in re.split(r"\.\s+", content) if s.strip()]
 
         if not paragraphs or len(paragraphs) == 1:
             # Can't split meaningfully, just truncate
@@ -661,9 +712,7 @@ class PromptRegenerator:
 
             # Get top N paragraph indices
             top_indices = sorted(
-                range(len(scores)),
-                key=lambda i: scores[i],
-                reverse=True
+                range(len(scores)), key=lambda i: scores[i], reverse=True
             )[:num_excerpts]
 
             # Sort indices to maintain document order
@@ -673,9 +722,11 @@ class PromptRegenerator:
             excerpts = [paragraphs[i] for i in top_indices]
 
             # Join with clear separators
-            result = '\n\n[...]\n\n'.join(excerpts)
+            result = "\n\n[...]\n\n".join(excerpts)
 
-            logger.debug(f"Extracted {len(excerpts)} relevant excerpts ({len(result)} chars)")
+            logger.debug(
+                f"Extracted {len(excerpts)} relevant excerpts ({len(result)} chars)"
+            )
             return result
 
         except Exception as e:
@@ -913,9 +964,7 @@ The user has specifically requested prompts focused on: **"{custom_bias_text}"**
             for file_path, content in bm25_results:
                 # Extract excerpts from large files
                 processed_content = self.extract_relevant_content(
-                    content,
-                    custom_bias_text or "",
-                    max_chars=5000
+                    content, custom_bias_text or "", max_chars=5000
                 )
 
                 # Get modification time
@@ -1058,24 +1107,30 @@ Here are randomly selected files from the last {self.time_frame_days} days:
             # Perform BM25 search if custom bias text is provided
             bm25_results = None
             if custom_bias_text:
-                logger.info(f"Performing BM25 search for custom bias: '{custom_bias_text}'")
+                logger.info(
+                    f"Performing BM25 search for custom bias: '{custom_bias_text}'"
+                )
                 bm25_results = self.search_files_with_bm25(
-                    query=custom_bias_text,
-                    top_n=20,
-                    return_top_recent=5
+                    query=custom_bias_text, top_n=20, return_top_recent=5
                 )
                 if bm25_results:
-                    logger.info(f"BM25 search returned {len(bm25_results)} relevant files")
+                    logger.info(
+                        f"BM25 search returned {len(bm25_results)} relevant files"
+                    )
                 else:
-                    logger.warning("BM25 search returned no results, continuing without file contents")
+                    logger.warning(
+                        "BM25 search returned no results, continuing without file contents"
+                    )
 
             llm_router = LlmRouter()
-            prompt = self.build_llm_prompt(files, timetable, custom_bias_text, bm25_results)
+            prompt = self.build_llm_prompt(
+                files, timetable, custom_bias_text, bm25_results
+            )
 
             # Print header for streamed output
             from termcolor import colored
 
-            print(colored("\nGenerating prompts:\n", "cyan"))
+            print(colored("\n === Generating prompts ===", "cyan"))
 
             # Generate completion with streaming to console
             response = await llm_router.generate_completion(

@@ -345,6 +345,10 @@ class Globals:
             asyncio.Queue()
         )  # Async queue for visual input from web interface
 
+        self.permission_response_queue: asyncio.Queue = (
+            asyncio.Queue()
+        )  # Dedicated queue for permission responses (separate from user input)
+
         # --- TTS Configuration ---
         # Default: Local models first, then remote APIs (prioritize privacy and offline capability)
         self.TTS_ENGINE_PRIORITY: list[str] = [
