@@ -335,15 +335,17 @@ class AudioManager {
                         }
                     });
 
-                    // Create audio context
-                    this.streamAudioContext = new (window.AudioContext || window.webkitAudioContext)({
-                        sampleRate: 16000
-                    });
+                    // Create audio context (use native sample rate to avoid mismatch)
+                    this.streamAudioContext = new (window.AudioContext || window.webkitAudioContext)();
 
                     const source = this.streamAudioContext.createMediaStreamSource(this.stream);
 
+                    // Store native sample rate for resampling
+                    const nativeSampleRate = this.streamAudioContext.sampleRate;
+                    console.log(`[AudioManager] Native sample rate: ${nativeSampleRate}Hz, target: 16000Hz`);
+
                     // Create script processor for capturing audio chunks
-                    // Buffer size: 4096 samples = ~256ms at 16kHz
+                    // Buffer size: 4096 samples
                     this.streamProcessor = this.streamAudioContext.createScriptProcessor(4096, 1, 1);
 
                     this.streamProcessor.onaudioprocess = (e) => {
@@ -351,8 +353,14 @@ class AudioManager {
                             // Get audio data as Float32Array
                             const audioData = e.inputBuffer.getChannelData(0);
 
+                            // Resample to 16kHz if needed
+                            let resampledData = audioData;
+                            if (nativeSampleRate !== 16000) {
+                                resampledData = this.resampleAudio(audioData, nativeSampleRate, 16000);
+                            }
+
                             // Send as binary to backend
-                            this.audioStreamWS.send(audioData.buffer);
+                            this.audioStreamWS.send(resampledData.buffer);
                         }
                     };
 
@@ -477,9 +485,10 @@ class AudioManager {
             console.log(`Starting VAD recording (threshold: ${this.vadThreshold}, silence: ${this.vadSilenceDuration}s, max: ${this.vadMaxDuration}s)`);
 
             this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                sampleRate: 16000
-            });
+
+            // Create audio context with native sample rate to avoid mismatch
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            console.log(`[VAD] Using native sample rate: ${this.audioContext.sampleRate}Hz`);
 
             const source = this.audioContext.createMediaStreamSource(this.stream);
 
@@ -489,6 +498,7 @@ class AudioManager {
             this.vadSilentChunks = 0;
             this.vadRecordedChunks = [];
             this.vadStartTime = Date.now();
+            this.vadNativeSampleRate = this.audioContext.sampleRate; // Store for resampling later
             this.isRecording = true;
 
             const numSilentChunksToStop = Math.floor(this.vadSilenceDuration * 10);
@@ -604,7 +614,14 @@ class AudioManager {
                 offset += chunk.length;
             }
 
-            const audioBlob = this.float32ArrayToWav(mergedAudio, 16000);
+            // Resample to 16kHz if needed (backend expects 16kHz)
+            let finalAudio = mergedAudio;
+            if (this.vadNativeSampleRate && this.vadNativeSampleRate !== 16000) {
+                console.log(`[VAD] Resampling from ${this.vadNativeSampleRate}Hz to 16000Hz`);
+                finalAudio = this.resampleAudio(mergedAudio, this.vadNativeSampleRate, 16000);
+            }
+
+            const audioBlob = this.float32ArrayToWav(finalAudio, 16000);
             console.log('VAD recording complete, blob size:', audioBlob.size);
 
             this.showStatus('Transcribing...', 'info');
@@ -631,6 +648,39 @@ class AudioManager {
             sum += Math.abs(samples[i]);
         }
         return sum / samples.length;
+    }
+
+    /**
+     * Resample audio from one sample rate to another using linear interpolation
+     *
+     * @param {Float32Array} audioData - Input audio samples
+     * @param {number} sourceSampleRate - Source sample rate in Hz
+     * @param {number} targetSampleRate - Target sample rate in Hz
+     * @returns {Float32Array} Resampled audio data
+     */
+    resampleAudio(audioData, sourceSampleRate, targetSampleRate) {
+        if (sourceSampleRate === targetSampleRate) {
+            return audioData;
+        }
+
+        const ratio = sourceSampleRate / targetSampleRate;
+        const newLength = Math.round(audioData.length / ratio);
+        const result = new Float32Array(newLength);
+
+        for (let i = 0; i < newLength; i++) {
+            const sourceIndex = i * ratio;
+            const index = Math.floor(sourceIndex);
+            const fraction = sourceIndex - index;
+
+            if (index + 1 < audioData.length) {
+                // Linear interpolation
+                result[i] = audioData[index] * (1 - fraction) + audioData[index + 1] * fraction;
+            } else {
+                result[i] = audioData[index];
+            }
+        }
+
+        return result;
     }
 
     /**
