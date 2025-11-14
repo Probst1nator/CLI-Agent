@@ -227,13 +227,20 @@ class AudioManager {
      */
     async stopRecording() {
         try {
+            console.log('[AudioManager] stopRecording() called');
+            console.log('[AudioManager] isRecording:', this.isRecording);
+            console.log('[AudioManager] recorder:', this.recorder);
+
             if (!this.isRecording || !this.recorder) {
-                console.warn('Not recording');
+                console.warn('[AudioManager] Not recording - returning empty string');
                 return '';
             }
 
+            console.log('[AudioManager] Creating promise to wait for recorder.onstop');
+
             return new Promise((resolve, reject) => {
                 this.recorder.onstop = async () => {
+                    console.log('[AudioManager] recorder.onstop fired!');
                     this.isRecording = false;
 
                     if (this.stream) {
@@ -243,22 +250,33 @@ class AudioManager {
 
                     try {
                         const audioBlob = new Blob(this.chunks, { type: 'audio/webm' });
-                        console.log('Recording stopped, blob size:', audioBlob.size);
+                        console.log('[AudioManager] Recording stopped, blob size:', audioBlob.size, 'bytes');
+                        console.log('[AudioManager] Chunks collected:', this.chunks.length);
+
+                        if (audioBlob.size === 0) {
+                            console.error('[AudioManager] Audio blob is empty! No data recorded.');
+                            throw new Error('No audio data recorded');
+                        }
 
                         this.showStatus('Transcribing...', 'info');
+                        console.log('[AudioManager] Calling uploadAudio()...');
                         const text = await this.uploadAudio(audioBlob);
+                        console.log('[AudioManager] uploadAudio() returned:', text);
 
                         resolve(text);
                     } catch (error) {
+                        console.error('[AudioManager] Error in onstop handler:', error);
                         reject(error);
                     }
                 };
 
+                console.log('[AudioManager] Calling recorder.stop()...');
                 this.recorder.stop();
+                console.log('[AudioManager] recorder.stop() called, waiting for onstop event');
             });
 
         } catch (error) {
-            console.error('Failed to stop recording:', error);
+            console.error('[AudioManager] Failed to stop recording:', error);
             this.showError('Recording upload failed: ' + error.message);
             throw error;
         }
@@ -514,43 +532,61 @@ class AudioManager {
      */
     async uploadAudio(blob) {
         try {
+            console.log('[AudioManager] uploadAudio() called with blob size:', blob.size);
+            console.log('[AudioManager] Blob type:', blob.type);
+
             const formData = new FormData();
             formData.append('audio', blob, 'recording.webm');
+            console.log('[AudioManager] FormData created, appended audio blob');
+
+            const endpoint = '/api/audio/upload';
+            const sessionId = window.sessionId || '';
+            console.log('[AudioManager] Uploading to:', endpoint);
+            console.log('[AudioManager] Session ID:', sessionId);
+            console.log('[AudioManager] Using backendConnector:', !!window.backendConnector);
 
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/audio/upload', {
+                ? await window.backendConnector.fetch(endpoint, {
                     method: 'POST',
                     headers: {
-                        'X-Session-ID': window.sessionId || ''
+                        'X-Session-ID': sessionId
                     },
                     body: formData
                 })
-                : await fetch('/api/audio/upload', {
+                : await fetch(endpoint, {
                     method: 'POST',
                     headers: {
-                        'X-Session-ID': window.sessionId || ''
+                        'X-Session-ID': sessionId
                     },
                     body: formData
                 });
 
+            console.log('[AudioManager] Response received, status:', response.status);
+            console.log('[AudioManager] Response ok:', response.ok);
+
             if (!response.ok) {
+                console.error('[AudioManager] Response not ok, status:', response.status);
                 const error = await response.json();
+                console.error('[AudioManager] Error response:', error);
                 throw new Error(error.error || 'Upload failed');
             }
 
             const data = await response.json();
+            console.log('[AudioManager] Response data:', data);
 
             if (data.status !== 'success' || !data.text) {
+                console.error('[AudioManager] Invalid response data:', data);
                 throw new Error('Transcription failed or returned empty text');
             }
 
-            console.log('Transcription successful:', data.text);
+            console.log('[AudioManager] Transcription successful:', data.text);
             this.showStatus('Transcription complete', 'success');
 
             return data.text;
 
         } catch (error) {
-            console.error('Audio upload failed:', error);
+            console.error('[AudioManager] Audio upload failed:', error);
+            console.error('[AudioManager] Error stack:', error.stack);
             this.showError('Transcription failed: ' + error.message);
             throw error;
         }
