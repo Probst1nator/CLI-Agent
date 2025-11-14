@@ -1946,21 +1946,39 @@ class VisualResponseApp {
                 console.log('🔊 Speak mode auto-enabled with voice mode');
             }
 
-            // Handle microphone recording (simplified - no VAD)
+            // Handle microphone streaming (continuous with backend VAD)
             console.log('[VoiceButton] isActive:', isActive, 'audioManager:', !!this.audioManager);
             if (this.audioManager) {
                 if (isActive) {
-                    // Start recording
-                    console.log('[VoiceButton] Starting recording...');
+                    // Start continuous streaming
+                    console.log('[VoiceButton] Starting audio streaming...');
                     try {
-                        window.logDebug('🎤 Starting recording...');
-                        await this.audioManager.startRecording();
-                        console.log('[VoiceButton] startRecording() completed successfully');
+                        window.logDebug('🎤 Starting continuous audio streaming...');
+
+                        // Start streaming with transcription callback
+                        await this.audioManager.startAudioStreaming((text, language) => {
+                            console.log('[VoiceButton] Transcription received via streaming:', text);
+
+                            // Populate input field with transcription
+                            if (text && text.trim()) {
+                                this.chatInput.value = text.trim();
+                                this.chatInput.focus();
+
+                                // Show success feedback
+                                if (typeof showToast === 'function') {
+                                    showToast('🎤 Transcription ready - review and press Enter to send', 'success');
+                                }
+
+                                window.logDebug('✓ Transcription populated in input field');
+                            }
+                        });
+
+                        console.log('[VoiceButton] Audio streaming started');
                         if (typeof showToast === 'function') {
-                            showToast('🎤 Recording... Click again to stop', 'info');
+                            showToast('🎤 Listening... Speak now (will auto-detect silence)', 'info');
                         }
                     } catch (error) {
-                        console.error('[VoiceButton] Failed to start recording:', error);
+                        console.error('[VoiceButton] Failed to start streaming:', error);
 
                         // Show user-friendly error message
                         if (typeof showToast === 'function') {
@@ -1970,7 +1988,7 @@ class VisualResponseApp {
                             } else if (errorMsg.includes('NotFound')) {
                                 showToast('❌ No microphone found - please connect a microphone', 'error');
                             } else {
-                                showToast(`❌ Recording failed: ${errorMsg}`, 'error');
+                                showToast(`❌ Streaming failed: ${errorMsg}`, 'error');
                             }
                         }
 
@@ -1979,45 +1997,17 @@ class VisualResponseApp {
                         return;
                     }
                 } else {
-                    // Stop recording and get transcription from backend
-                    console.log('[VoiceButton] Stopping recording...');
+                    // Stop streaming
+                    console.log('[VoiceButton] Stopping audio streaming...');
                     try {
+                        this.audioManager.stopAudioStreaming();
+                        console.log('[VoiceButton] Audio streaming stopped');
+
                         if (typeof showToast === 'function') {
-                            showToast('⏳ Processing audio...', 'info');
-                        }
-
-                        console.log('[VoiceButton] Calling stopRecording()...');
-                        const transcription = await this.audioManager.stopRecording();
-                        console.log('[VoiceButton] stopRecording() returned:', transcription);
-                        window.logDebug('🎤 Recording stopped, transcription:', transcription);
-
-                        // Populate input field with transcription for user review
-                        if (transcription && transcription.trim()) {
-                            console.log('[VoiceButton] Populating input field with transcription');
-                            this.chatInput.value = transcription.trim();
-                            this.chatInput.focus();
-
-                            // Show success feedback
-                            if (typeof showToast === 'function') {
-                                showToast('✅ Transcription ready - review and press Enter to send', 'success');
-                            }
-
-                            window.logDebug('✓ Transcription populated in input field');
-                        } else {
-                            console.warn('[VoiceButton] Empty transcription received');
-                            window.logWarn('⚠️ Empty transcription received');
-                            if (typeof showToast === 'function') {
-                                showToast('⚠️ No speech detected - please try again', 'warning');
-                            }
+                            showToast('🎤 Stopped listening', 'info');
                         }
                     } catch (error) {
-                        console.error('[VoiceButton] Failed to stop recording:', error);
-                        console.error('[VoiceButton] Error stack:', error.stack);
-
-                        // Show user-friendly error message
-                        if (typeof showToast === 'function') {
-                            showToast(`❌ Transcription failed: ${error.message || 'Unknown error'}`, 'error');
-                        }
+                        console.error('[VoiceButton] Failed to stop streaming:', error);
                     }
                 }
             } else {
@@ -2028,11 +2018,11 @@ class VisualResponseApp {
             if (isActive) {
                 // Show microphone with "active" styling
                 this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" fill="currentColor"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
-                this.voiceBtn.title = 'Recording - click to stop';
+                this.voiceBtn.title = 'Listening... click to stop';
             } else {
                 // Show regular microphone icon
                 this.voiceBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1C13.66 1 15 2.34 15 4V12C15 13.66 13.66 15 12 15C10.34 15 9 13.66 9 12V4C9 2.34 10.34 1 12 1Z" stroke="currentColor" stroke-width="2"/><path d="M19 10V12C19 16.42 15.42 20 11 20H13C17.42 20 21 16.42 21 12V10" stroke="currentColor" stroke-width="2"/><path d="M12 20V24" stroke="currentColor" stroke-width="2"/><path d="M8 24H16" stroke="currentColor" stroke-width="2"/></svg>';
-                this.voiceBtn.title = 'Voice input - click to start recording';
+                this.voiceBtn.title = 'Voice input - click to start (auto-detects silence)';
             }
 
             // Brief feedback animation
