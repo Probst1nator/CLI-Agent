@@ -721,12 +721,37 @@ class VoiceInputSource(InputSource_ABC):
                 self.logger.info("🎤 Listening...")
 
             # Listen for response
-            transcription, _, _ = listen_microphone(
+            transcription, detected_language, _ = listen_microphone(
                 private_remote_wake_detection=getattr(args, 'private_remote_wake_detection', False),
                 remote_voice_enabled=getattr(args, 'online_voice', False)
             )
 
             self.logger.info(f"🎤 User replied: \"{transcription}\"")
+
+            # Broadcast transcription to web UI if GUI mode is active
+            try:
+                from core.globals import g
+                if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
+                    # Import and call broadcast function asynchronously
+                    import asyncio
+                    from api.server import broadcast_voice_transcription
+
+                    # Try to run in existing event loop, or create new one if needed
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # Schedule coroutine to run in the running loop
+                            asyncio.create_task(broadcast_voice_transcription(transcription, detected_language or "unknown"))
+                        else:
+                            # Run in the current loop
+                            loop.run_until_complete(broadcast_voice_transcription(transcription, detected_language or "unknown"))
+                    except RuntimeError:
+                        # No event loop exists, create a new one
+                        asyncio.run(broadcast_voice_transcription(transcription, detected_language or "unknown"))
+
+                    self.logger.debug(f"Broadcasted voice transcription to web UI: {transcription[:50]}...")
+            except Exception as e:
+                self.logger.debug(f"Failed to broadcast voice transcription to web UI: {e}")
 
             # Map voice keywords to commands
             mapped_command = self._map_voice_keywords(transcription)

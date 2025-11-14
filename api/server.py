@@ -968,6 +968,34 @@ async def broadcast_generation_complete(generation_id: str, model_key: str,
         logger.debug(f"Failed to broadcast generation_complete: {e}")
 
 
+async def broadcast_voice_transcription(text: str, language: str = "unknown") -> None:
+    """
+    Broadcast voice_transcription event to all WebSocket clients.
+    Called when CLI voice input receives a transcription.
+
+    Args:
+        text: Transcribed text from voice input
+        language: Detected language code (e.g., 'en', 'pt', 'es')
+    """
+    server = get_server()
+    if not server:
+        return
+
+    try:
+        payload = {
+            'type': 'voice_transcription',
+            'timestamp': time.time(),
+            'text': text.strip(),
+            'language': language
+        }
+
+        await server.broadcast(payload)
+        logger.debug(f"Broadcasted voice_transcription: {text[:50]}... ({language})")
+
+    except Exception as e:
+        logger.debug(f"Failed to broadcast voice_transcription: {e}")
+
+
 async def broadcast_tool_update(tool_name: str, status: str, description: str = "",
                                  result: str = "", duration_ms: int = 0, error: str = None) -> None:
     """
