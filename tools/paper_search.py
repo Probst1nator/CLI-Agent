@@ -55,6 +55,11 @@ PARAMETERS:
   <date_to> - End date YYYY-MM-DD (optional)
   <arxiv_ids> - Comma-separated IDs for direct lookup (optional)
 
+QUERY HANDLING:
+  Simple queries (e.g., "artificial intelligence", "LLM", "transformers") are automatically
+  searched across all fields (title, abstract, authors, comments) using the 'all:' prefix.
+  Advanced queries with field prefixes or boolean operators are used as-is.
+
 EXAMPLES:
   Basic: <paper_search><query>neural networks</query></paper_search>
   Filtered: <paper_search><query>transformers</query><category>cs.LG</category><max_results>10</max_results></paper_search>
@@ -157,9 +162,20 @@ RELATED: <help>websearch</help> <help>readfile</help>
         """
         query_parts = []
 
-        # Add base query
+        # Add base query with field prefix if needed
         if query:
-            query_parts.append(query)
+            # Check if query already has field prefixes or boolean operators
+            has_field_prefix = bool(re.search(r'\b(ti|au|abs|cat|co|jr|all):', query.lower()))
+            has_boolean = bool(re.search(r'\b(AND|OR|ANDNOT)\b', query))
+
+            if has_field_prefix or has_boolean:
+                # Query already has advanced syntax, use as-is
+                query_parts.append(query)
+            else:
+                # Simple query without field prefix - search across all fields for better results
+                # Using 'all:' searches across title, abstract, authors, comments, etc.
+                query_parts.append(f'all:{query}')
+                logger.debug(f"Added 'all:' prefix to simple query: {query}")
 
         # Add author filter if not already in query
         if author and 'au:' not in query.lower():
