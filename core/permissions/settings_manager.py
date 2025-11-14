@@ -10,6 +10,18 @@ import os
 import re
 
 
+# Tool classifications for auto-allow policies
+READ_ONLY_FILE_TOOLS = {
+    'readfile',       # Read file contents (text, PDF, images, Office docs, etc.)
+    'readdirectory',  # List directory structure as tree
+    'searchfile',     # BM25-based search in files/directories
+    'grepsearch'      # Regex search in file contents and names
+}
+
+# Agent memory directory - safe for read-only tool access
+AGENT_MEMORY_DIR = os.path.expanduser("~/.cli-agent/")
+
+
 class SettingsManager:
     """
     Manages permission settings with simple allow/deny/ask lists.
@@ -184,7 +196,7 @@ class SettingsManager:
         """
         Check permission for a tool execution.
 
-        Precedence order: deny → ask → allow → default
+        Precedence order: deny → auto-allow (read-only memory) → ask → allow → default
 
         Args:
             tool_name: Name of tool being executed
@@ -202,20 +214,37 @@ class SettingsManager:
 
             >>> mgr.check_permission("readfile", file_path="./src/main.py")
             ("allow", "Permitted by rule: readfile(./src/**)")
+
+            >>> mgr.check_permission("readfile", file_path="~/.cli-agent/memory/file.txt")
+            ("allow", "Auto-allowed: read-only access to agent memory (readfile)")
         """
         permissions = self.settings.get("permissions", {})
 
-        # Layer 1: Check deny list (always blocks)
+        # Layer 1: Check deny list (always blocks - highest priority)
         for deny_rule in permissions.get("deny", []):
             if self._matches_pattern(deny_rule, tool_name, file_path, command):
                 return "deny", f"Blocked by permission rule: {deny_rule}"
 
-        # Layer 2: Check ask list (requires confirmation)
+        # Layer 2: Auto-allow read-only file tools when accessing agent memory directory
+        if tool_name.lower() in READ_ONLY_FILE_TOOLS and file_path:
+            try:
+                # Normalize paths to prevent ../ bypass attacks
+                normalized_path = os.path.normpath(os.path.abspath(os.path.expanduser(file_path)))
+                normalized_memory = os.path.normpath(os.path.abspath(AGENT_MEMORY_DIR))
+
+                # Check if path is within agent memory directory
+                if normalized_path.startswith(normalized_memory):
+                    return "allow", f"Auto-allowed: read-only access to agent memory ({tool_name})"
+            except Exception:
+                # Fall through to normal permission checking if path resolution fails
+                pass
+
+        # Layer 3: Check ask list (requires confirmation)
         for ask_rule in permissions.get("ask", []):
             if self._matches_pattern(ask_rule, tool_name, file_path, command):
                 return "ask", f"Requires confirmation: {ask_rule}"
 
-        # Layer 3: Check allow list (always permits)
+        # Layer 4: Check allow list (always permits)
         for allow_rule in permissions.get("allow", []):
             if self._matches_pattern(allow_rule, tool_name, file_path, command):
                 return "allow", f"Permitted by rule: {allow_rule}"
