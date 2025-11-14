@@ -17,15 +17,15 @@ from tools.paper_search import paper_search
 class TestPaperSearchQueryBuilding:
     """Test the _build_arxiv_query method to ensure proper query formatting."""
 
-    def test_simple_query_gets_all_prefix(self):
-        """Simple queries without field prefixes should get 'all:' prefix."""
+    def test_simple_query_unchanged(self):
+        """Simple queries without field prefixes should remain unchanged."""
         query = paper_search._build_arxiv_query("artificial intelligence")
-        assert query == "all:artificial intelligence"
+        assert query == "artificial intelligence"
 
     def test_simple_query_with_spaces(self):
-        """Simple queries with multiple words should get 'all:' prefix."""
+        """Simple queries with multiple words should remain unchanged."""
         query = paper_search._build_arxiv_query("generative AI models")
-        assert query == "all:generative AI models"
+        assert query == "generative AI models"
 
     def test_query_with_field_prefix_unchanged(self):
         """Queries with field prefixes should remain unchanged."""
@@ -46,11 +46,6 @@ class TestPaperSearchQueryBuilding:
         """Queries with category field should remain unchanged."""
         query = paper_search._build_arxiv_query("cat:cs.AI")
         assert query == "cat:cs.AI"
-
-    def test_query_with_all_field_unchanged(self):
-        """Queries already using 'all:' should remain unchanged."""
-        query = paper_search._build_arxiv_query("all:machine learning")
-        assert query == "all:machine learning"
 
     def test_query_with_boolean_operators_unchanged(self):
         """Queries with boolean operators should remain unchanged."""
@@ -75,12 +70,12 @@ class TestPaperSearchQueryBuilding:
     def test_simple_query_with_author_filter(self):
         """Simple query with author filter should add both."""
         query = paper_search._build_arxiv_query("deep learning", author="Hinton")
-        assert query == 'all:deep learning AND au:"Hinton"'
+        assert query == 'deep learning AND au:"Hinton"'
 
     def test_simple_query_with_category_filter(self):
         """Simple query with category filter should add both."""
         query = paper_search._build_arxiv_query("neural networks", category="cs.LG")
-        assert query == "all:neural networks AND cat:cs.LG"
+        assert query == "neural networks AND cat:cs.LG"
 
     def test_simple_query_with_both_filters(self):
         """Simple query with author and category filters should add all."""
@@ -89,7 +84,7 @@ class TestPaperSearchQueryBuilding:
             author="Vaswani",
             category="cs.CL"
         )
-        assert query == 'all:attention mechanism AND au:"Vaswani" AND cat:cs.CL'
+        assert query == 'attention mechanism AND au:"Vaswani" AND cat:cs.CL'
 
     def test_field_query_with_category_filter(self):
         """Query with field prefix and category filter should add category."""
@@ -108,7 +103,7 @@ class TestPaperSearchQueryBuilding:
 
     def test_reported_issue_queries(self):
         """Test the specific queries mentioned in the bug report."""
-        # These should all get the 'all:' prefix
+        # These should remain unchanged (arXiv API handles default field searching)
         queries = [
             "artificial intelligence",
             "LLM",
@@ -117,7 +112,7 @@ class TestPaperSearchQueryBuilding:
 
         for q in queries:
             result = paper_search._build_arxiv_query(q)
-            assert result == f"all:{q}", f"Query '{q}' should have 'all:' prefix"
+            assert result == q, f"Query '{q}' should remain unchanged"
 
 
 if __name__ == '__main__':
