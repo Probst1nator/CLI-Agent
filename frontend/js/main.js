@@ -582,6 +582,26 @@ class VisualResponseApp {
                 }
             });
 
+            // Listen for voice_transcription events from CLI voice input
+            this.wsManager.on('voice_transcription', (data) => {
+                console.log('🎤 Voice transcription received from CLI:', data);
+
+                // Populate input field with transcription (without submitting)
+                if (data.text && data.text.trim() && this.chatInput) {
+                    this.chatInput.value = data.text.trim();
+                    this.chatInput.focus();
+
+                    // Show success feedback
+                    if (typeof showToast === 'function') {
+                        showToast(`🎤 Transcription ready (${data.language || 'unknown'}) - review and press Enter to send`, 'success');
+                    }
+
+                    console.log('✅ Voice transcription populated in input field');
+                } else {
+                    console.warn('⚠️ Empty or invalid transcription received');
+                }
+            });
+
             // Legacy: Listen for message_end events (not currently sent by backend)
             this.wsManager.on('message_end', async (data) => {
                 if (this.speakModeEnabled && data.content) {
