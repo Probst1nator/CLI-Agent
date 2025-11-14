@@ -44,18 +44,22 @@ python user_scripts/sync_public_repo.py --push
 ## What Gets Filtered
 
 ### Privileged Tools (Deleted from Public)
+
 These tools are **completely removed** from the public repository:
+
 - `bash.py` - Shell command execution
 - `writefile.py`, `editfile.py`, `insertline.py`, `deletelines.py` - File modifications
 - `computercontrol.py` - System control
 
 ### Safe Tools (Kept in Public)
+
 - `readfile.py`, `readdirectory.py` - Read files and directories
 - `grepsearch.py`, `searchconversations.py` - Search operations
 - `viewpermissions.py` - View permission settings
 - All other read-only tools
 
 ### Also Excluded
+
 - `.env`, `*.log` - Secrets and logs
 - Various internal development directories
 
@@ -96,6 +100,5 @@ Edit `.public-repo-config.json` to customize what gets filtered.
 ## Full Documentation
 
 - **Complete Workflow**: `docs/RELEASE_WORKFLOW.md`
-- **PR Template**: `.github/pull_request_template.md`
 - **Sync Script**: `user_scripts/sync_public_repo.py`
 - **Config**: `.public-repo-config.json`

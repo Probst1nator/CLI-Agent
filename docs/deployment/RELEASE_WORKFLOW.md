@@ -52,6 +52,7 @@ git push git_private main
 When you have changes ready for public release, create a Pull Request:
 
 **Option A: Using GitHub CLI**
+
 ```bash
 gh pr create \
   --base public-sync \
@@ -73,6 +74,7 @@ EOF
 ```
 
 **Option B: On GitHub Website**
+
 1. Go to https://github.com/Probst1nator/CLI-Agent_DEV
 2. Click "Pull requests" → "New pull request"
 3. Base: `public-sync` ← Compare: `main`
@@ -84,6 +86,7 @@ EOF
 Review the PR carefully:
 
 **Review Checklist:**
+
 - [ ] **No Secrets**: Search for API keys, passwords, tokens
 - [ ] **No Private Infrastructure**: No mentions of saas_scripts, specific deployment details
 - [ ] **Appropriate Documentation**: READMEs, comments suitable for public
@@ -91,6 +94,7 @@ Review the PR carefully:
 - [ ] **Value Addition**: Changes benefit public users
 
 **How to Review:**
+
 ```bash
 # Check diff for sensitive content
 gh pr diff <PR-number> | grep -i "api_key\|password\|secret\|token"
@@ -125,6 +129,7 @@ python user_scripts/sync_public_repo.py --prepare
 ```
 
 **What the sync script does:**
+
 1. Creates `public-release` branch from `public-sync`
 2. Deletes privileged tools (bash.py, writefile.py, etc.)
 3. Removes internal directories (saas_scripts/, docker_files/traefik/)
@@ -163,6 +168,7 @@ python user_scripts/sync_public_repo.py --push
 This pushes `public-release` → `git_public/main`.
 
 **Confirmation Prompt:**
+
 ```
 ⚠️  This will push to the public repository!
 Remote: https://github.com/Probst1nator/CLI-Agent.git
@@ -174,6 +180,7 @@ Type `y` to proceed.
 ### Step 8: Verify on GitHub
 
 Visit https://github.com/Probst1nator/CLI-Agent and verify:
+
 - [ ] Latest commit is visible
 - [ ] README is appropriate
 - [ ] No `tools/bash.py` or other privileged tools
@@ -210,6 +217,7 @@ python user_scripts/sync_public_repo.py --push
 **Problem**: PR includes commits you don't want public
 
 **Solution**: Rebase or cherry-pick specific commits
+
 ```bash
 git checkout public-sync
 git cherry-pick <commit-hash>
@@ -221,6 +229,7 @@ git push git_private public-sync
 **Problem**: `public-sync branch doesn't exist`
 
 **Solution**: Create it
+
 ```bash
 git checkout main
 git checkout -b public-sync
@@ -232,6 +241,7 @@ git push git_private public-sync
 **Problem**: After filtering, `ModuleNotFoundError: No module named 'tools.bash'`
 
 **Solution**: Bootstrap was already fixed to use readdirectory. If you see this, check:
+
 ```bash
 grep "from tools.bash import" main.py
 # Should find only safe imports
@@ -242,8 +252,10 @@ grep "from tools.bash import" main.py
 **Problem**: API key was pushed to public
 
 **Solution**:
+
 1. Immediately rotate the API key
 2. Remove from git history:
+
 ```bash
 git filter-branch --force --index-filter \
   'git rm --cached --ignore-unmatch path/to/file' \
@@ -256,11 +268,13 @@ git push git_public main --force
 ### Before Creating PR
 
 1. **Search for secrets**:
+
    ```bash
    grep -r "API_KEY\|SECRET\|PASSWORD" . --exclude-dir=.git
    ```
 
 2. **Check for private references**:
+
    ```bash
    grep -r "saas_scripts\|traefik" . --exclude-dir=.git
    ```
@@ -279,6 +293,7 @@ git push git_public main --force
 ### Communication
 
 If the public repo is mentioned in papers/presentations:
+
 - Note the specific commit or tag used
 - Document any differences from private version
 
@@ -288,7 +303,6 @@ If the public repo is mentioned in papers/presentations:
 - **Sync Script**: `user_scripts/sync_public_repo.py` - Handles filtering
 - **This Guide**: `docs/RELEASE_WORKFLOW.md`
 - **Quick Reference**: `docs/PUBLIC_SYNC.md`
-- **PR Template**: `.github/pull_request_template.md`
 
 ## Questions?
 
