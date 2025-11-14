@@ -243,6 +243,28 @@
     font-weight: 500;
 }
 
+/* Images within tool output */
+.loading-tool-output .tool-output-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    margin: 8px 0;
+    display: block;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.loading-tool-output .tool-output-image:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Expand output container when it contains images */
+.loading-tool-output:has(.tool-output-image) {
+    max-height: 600px;
+}
+
 /* Responsive design - mobile */
 @media (max-width: 768px) {
     .loading-tools-header {
