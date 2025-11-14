@@ -54,42 +54,54 @@ def test_response_special_characters():
 
 def test_response_end_turn_flag_default():
     """Test that end_turn defaults to True"""
+    from core.tool_context import tool_context
+    
     content = "Regular response"
 
+    # Reset context before test
+    tool_context.reset()
+    
     with patch('api.server.get_server', return_value=None):
-        with patch('core.tool_context.tool_context') as mock_context:
-            result = response.run(content)
-
-            # Verify set_end_turn was called with True (default)
-            mock_context.set_end_turn.assert_called_once_with(True)
+        result = response.run(content)
+        
+        # Verify end_turn was set to True (default)
+        assert tool_context.get_end_turn() == True, "end_turn should default to True"
 
     return True
 
 
 def test_response_end_turn_flag_false():
     """Test explicit end_turn=false parameter"""
+    from core.tool_context import tool_context
+    
     content = "<end_turn>false</end_turn>This is a partial response"
 
+    # Reset context before test
+    tool_context.reset()
+    
     with patch('api.server.get_server', return_value=None):
-        with patch('core.tool_context.tool_context') as mock_context:
-            result = response.run(content)
-
-            # Verify set_end_turn was called with False
-            mock_context.set_end_turn.assert_called_once_with(False)
+        result = response.run(content)
+        
+        # Verify end_turn was set to False
+        assert tool_context.get_end_turn() == False, "end_turn should be False"
 
     return True
 
 
 def test_response_end_turn_flag_true():
     """Test explicit end_turn=true parameter"""
+    from core.tool_context import tool_context
+    
     content = "<end_turn>true</end_turn>This is a final response"
 
+    # Reset context before test
+    tool_context.reset()
+    
     with patch('api.server.get_server', return_value=None):
-        with patch('core.tool_context.tool_context') as mock_context:
-            result = response.run(content)
-
-            # Verify set_end_turn was called with True
-            mock_context.set_end_turn.assert_called_once_with(True)
+        result = response.run(content)
+        
+        # Verify end_turn was set to True
+        assert tool_context.get_end_turn() == True, "end_turn should be True"
 
     return True
 
