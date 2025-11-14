@@ -22,6 +22,13 @@ except ImportError:
     aiohttp = None
     AIOHTTP_AVAILABLE = False
 
+try:
+    from termcolor import colored
+except ImportError:
+    # Fallback if termcolor not available
+    def colored(text, color):
+        return text
+
 logger = logging.getLogger(__name__)
 
 # VAD parameters (matching CLI mode)
@@ -43,20 +50,26 @@ class AudioStreamHandler:
         self.silence_duration = DEFAULT_SILENCE_DURATION
         self.max_duration = DEFAULT_MAX_DURATION
         self.num_silent_chunks_to_stop = int(self.silence_duration * 10)
+        self.printed_listening = False  # Track if we've printed the listening message
 
     def process_chunk(self, audio_chunk: np.ndarray) -> Optional[np.ndarray]:
         """
-        Process audio chunk with VAD logic.
+        Process audio chunk with VAD logic (matches CLI record_audio behavior).
 
         Returns:
             Complete audio recording when silence detected, None otherwise
         """
+        # Print initial listening message (like CLI mode)
+        if not self.printed_listening:
+            print(f"<{colored('Recording', 'red')}> Listening...")
+            self.printed_listening = True
+
         # Calculate amplitude (mean absolute value)
         is_loud = np.abs(audio_chunk).mean() > self.threshold
 
         # Check max duration
         if self.start_time and (time.time() - self.start_time) > self.max_duration:
-            logger.info("Reached maximum recording time")
+            print("\n<Recording> Reached maximum recording time.")
             return self._finalize_recording()
 
         if self.recording:
@@ -70,12 +83,12 @@ class AudioStreamHandler:
 
             # Check if silence threshold reached
             if self.silent_chunks > self.num_silent_chunks_to_stop:
-                logger.info(f"Silence detected after {len(self.audio_buffer)} chunks")
+                print("\n<Recording> Detected end of speech.")
                 return self._finalize_recording()
 
         elif is_loud:
-            # Speech detected, start recording
-            logger.info("Speech detected, starting recording")
+            # Speech detected, start recording (like CLI mode)
+            print("<Recording> Speech detected, starting...", end="", flush=True)
             self.recording = True
             self.start_time = time.time()
             self.audio_buffer = [audio_chunk]
@@ -138,7 +151,7 @@ async def websocket_audio_stream(request: Any) -> Any:
 
                     if complete_audio is not None:
                         # Silence detected, transcribe
-                        logger.info(f"Transcribing {len(complete_audio)} samples")
+                        logger.debug(f"Transcribing {len(complete_audio)} samples")
 
                         try:
                             from shared.utils_audio import transcribe_audio, initialize_faster_whisper_model
@@ -146,7 +159,7 @@ async def websocket_audio_stream(request: Any) -> Any:
                             # Initialize Faster-Whisper if not already done
                             initialize_faster_whisper_model("small")
 
-                            # Transcribe
+                            # Transcribe (this will print the CLI-style logs)
                             text, language = transcribe_audio(
                                 complete_audio,
                                 SAMPLE_RATE,
@@ -154,21 +167,30 @@ async def websocket_audio_stream(request: Any) -> Any:
                             )
 
                             if text and text.strip():
+                                # Print user reply message (like CLI mode)
+                                print(f"🎤 User replied: \"{text.strip()}\"")
+
                                 # Send transcription back to client
                                 await ws.send_json({
                                     "type": "transcription",
                                     "text": text.strip(),
                                     "language": language
                                 })
-                                logger.info(f"Sent transcription: {text[:100]}...")
+                                logger.debug(f"Sent transcription: {text[:100]}...")
+
+                                # Reset handler for next recording
+                                handler = AudioStreamHandler()
                             else:
                                 # Empty transcription
+                                print(f"<{colored('Warning', 'yellow')}> No speech detected.")
                                 await ws.send_json({
                                     "type": "transcription",
                                     "text": "",
                                     "language": "unknown",
                                     "error": "No speech detected"
                                 })
+                                # Reset handler for next recording
+                                handler = AudioStreamHandler()
 
                         except Exception as e:
                             logger.error(f"Transcription failed: {e}", exc_info=True)
@@ -176,6 +198,8 @@ async def websocket_audio_stream(request: Any) -> Any:
                                 "type": "error",
                                 "error": str(e)
                             })
+                            # Reset handler even on error
+                            handler = AudioStreamHandler()
 
                 except Exception as e:
                     logger.error(f"Error processing audio chunk: {e}", exc_info=True)
