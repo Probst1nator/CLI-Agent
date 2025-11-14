@@ -23,6 +23,11 @@ jobs:
           python3 --version
           which python3
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-dev libxslt-dev
+
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
