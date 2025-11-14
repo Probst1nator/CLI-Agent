@@ -111,7 +111,6 @@ Cross-cutting concerns and project-wide documentation:
 
 #### Deployment (`/docs/deployment/`)
 - **PUBLIC_SYNC.md** - Public repository sync workflow
-- **RELEASE_WORKFLOW.md** - Release process
 - **SELF_HOSTED_RUNNER_SETUP.md** - GitHub Actions self-hosted runners
 
 #### Archived & Experimental

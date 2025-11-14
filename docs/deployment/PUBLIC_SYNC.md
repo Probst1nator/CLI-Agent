@@ -1,104 +1,54 @@
-# Public Repository Sync - Quick Reference
+# Public Repository Sync
 
-## Overview
+Public version at https://github.com/Probst1nator/CLI-Agent (safe tools only).
 
-This repository has a public version at https://github.com/Probst1nator/CLI-Agent that contains **safe tools only** (read-only operations).
-
-## Three-Stage Workflow
+## Workflow
 
 ```
-main → PR → public-sync → sync script → public-release → git_public/main
+main → PR → public-sync → filter → public-release → git_public/main
 ```
 
-1. **main** (private dev) - All features and tools
-2. **public-sync** (review stage) - Approved for public
-3. **public-release** (filtered) - Safe tools only
-
-**Full guide**: See `docs/RELEASE_WORKFLOW.md`
-
-## Quick Commands
+### Commands
 
 ```bash
-# 1. Create PR for public review
+# 1. Create PR for review
 gh pr create --base public-sync --head main
 
-# 2. After PR merged, run sync from public-sync branch
-git checkout public-sync
-git pull git_private public-sync
-
-# 3. Preview changes
-python user_scripts/sync_public_repo.py --dry-run
-
-# 4. Create filtered branch
+# 2. After merge, sync from public-sync
+git checkout public-sync && git pull
 python user_scripts/sync_public_repo.py --prepare
 
-# 5. Review filtering
+# 3. Verify filtered version
 git checkout public-release
+python main.py  # Test it works
 git diff public-sync..public-release --stat
-python main.py  # Verify it works
 
-# 6. Push to public
+# 4. Push to public
 python user_scripts/sync_public_repo.py --push
 ```
 
-## What Gets Filtered
+### What Gets Filtered
 
-### Privileged Tools (Deleted from Public)
+**Removed**: `bash.py`, `writefile.py`, `editfile.py`, `computercontrol.py`, internal dirs, secrets
+**Kept**: All read-only tools (`readfile.py`, `grepsearch.py`, etc.)
 
-These tools are **completely removed** from the public repository:
+### Review Checklist (for Public Sync PRs)
 
-- `bash.py` - Shell command execution
-- `writefile.py`, `editfile.py`, `insertline.py`, `deletelines.py` - File modifications
-- `computercontrol.py` - System control
+Before merging main → public-sync:
+```bash
+# Check for secrets
+grep -r "API_KEY\|SECRET\|PASSWORD" . --exclude-dir=.git
 
-### Safe Tools (Kept in Public)
-
-- `readfile.py`, `readdirectory.py` - Read files and directories
-- `grepsearch.py`, `searchconversations.py` - Search operations
-- `viewpermissions.py` - View permission settings
-- All other read-only tools
-
-### Also Excluded
-
-- `.env`, `*.log` - Secrets and logs
-- Various internal development directories
-
-## Result
-
-**Public version**: Clean, safe agent with read-only capabilities
-**Private version**: Full agent with all tools including privileged operations
-
-## Configuration
-
-Edit `.public-repo-config.json` to customize what gets filtered.
-
-## Branch Structure
-
-```
-┌─────────────────────────────────────┐
-│ git_private (Private Development)   │
-├─────────────────────────────────────┤
-│ main          - Active development  │
-│ public-sync   - Public review stage │
-│ public-release - Filtered (temporary)│
-└─────────────────────────────────────┘
-                ↓
-┌─────────────────────────────────────┐
-│ git_public (Public Repository)      │
-├─────────────────────────────────────┤
-│ main          - Public releases     │
-└─────────────────────────────────────┘
+# Check for private refs
+grep -r "saas_scripts\|traefik" . --exclude-dir=.git
 ```
 
-## Important Notes
+Verify:
+- [ ] No secrets or credentials
+- [ ] No private infrastructure references
+- [ ] Documentation appropriate for public
+- [ ] Changes add value to public repo
 
-- **Always work on `main`** for development
-- **PR to `public-sync`** when ready for public release
-- **Sync script runs from `public-sync`** (not main)
-- **`public-release`** is temporary, deleted after push
+### Config
 
-## Full Documentation
-
-- **Complete Workflow**: `docs/RELEASE_WORKFLOW.md`
-- **Sync Script**: `user_scripts/sync_public_repo.py`
-- **Config**: `.public-repo-config.json`
+Edit `.public-repo-config.json` to customize filtering.
