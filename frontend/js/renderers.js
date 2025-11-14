@@ -1093,7 +1093,7 @@ class ContentRenderer {
                     </div>
                     <div class="loading-tool-details collapsed">
                         <div class="loading-tool-args">${this.escapeHtml(tool.args || 'No arguments')}</div>
-                        <div class="loading-tool-output">${this.escapeHtml(tool.context_returned || 'No output')}</div>
+                        <div class="loading-tool-output">${this.processToolOutput(tool.context_returned)}</div>
                     </div>
                 `;
 
@@ -1363,6 +1363,55 @@ class ContentRenderer {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    /**
+     * Process tool output to detect and render special content types (e.g., images).
+     * Detects [CLI_AGENT_IMAGE:data:...] markers and converts them to img tags.
+     *
+     * @param {string} output - Raw tool output text
+     * @returns {string} HTML string with images rendered
+     */
+    processToolOutput(output) {
+        if (!output) return 'No output';
+
+        // Detect image markers: [CLI_AGENT_IMAGE:data:image/...;base64,...]
+        const imageMarkerRegex = /\[CLI_AGENT_IMAGE:(data:image\/[^;]+;base64,[^\]]+)\]/g;
+
+        if (!imageMarkerRegex.test(output)) {
+            // No images, return escaped text
+            return this.escapeHtml(output);
+        }
+
+        // Reset regex lastIndex after test
+        imageMarkerRegex.lastIndex = 0;
+
+        // Split output into parts and process each
+        let processedOutput = '';
+        let lastIndex = 0;
+        let match;
+
+        while ((match = imageMarkerRegex.exec(output)) !== null) {
+            // Add text before the image marker (escaped)
+            if (match.index > lastIndex) {
+                const textBefore = output.substring(lastIndex, match.index);
+                processedOutput += this.escapeHtml(textBefore);
+            }
+
+            // Add image tag
+            const dataUrl = match[1];
+            processedOutput += `<img src="${dataUrl}" alt="Image from tool" class="tool-output-image" style="max-width: 100%; height: auto; border-radius: 4px; margin: 8px 0;">`;
+
+            lastIndex = match.index + match[0].length;
+        }
+
+        // Add remaining text after last image (escaped)
+        if (lastIndex < output.length) {
+            const textAfter = output.substring(lastIndex);
+            processedOutput += this.escapeHtml(textAfter);
+        }
+
+        return processedOutput;
     }
 
     /**
