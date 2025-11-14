@@ -89,32 +89,39 @@ class AudioManager {
         // VAD (Voice Activity Detection) settings
 
         /**
-         * Flag to enable/disable VAD recording mode
+         * WebSocket for continuous audio streaming
+         * @type {WebSocket}
+         * @private
+         */
+        this.audioStreamWS = null;
+
+        /**
+         * AudioContext for processing streaming audio
+         * @type {AudioContext}
+         * @private
+         */
+        this.streamAudioContext = null;
+
+        /**
+         * ScriptProcessor for capturing audio chunks
+         * @type {ScriptProcessorNode}
+         * @private
+         */
+        this.streamProcessor = null;
+
+        /**
+         * Flag indicating if streaming mode is active
          * @type {boolean}
          * @private
          */
-        this.vadEnabled = false;
+        this.isStreaming = false;
 
         /**
-         * Amplitude threshold for voice detection (0.0 to 1.0)
-         * @type {number}
+         * Callback for when streaming transcription is received
+         * @type {Function}
          * @private
          */
-        this.vadThreshold = 0.02;
-
-        /**
-         * Duration of silence (in seconds) before auto-stopping recording
-         * @type {number}
-         * @private
-         */
-        this.vadSilenceDuration = 2.0;
-
-        /**
-         * Maximum recording duration (in seconds) for VAD mode
-         * @type {number}
-         * @private
-         */
-        this.vadMaxDuration = 20.0;
+        this.onStreamTranscription = null;
 
         /**
          * Flag indicating if VAD has detected speech and started recording
@@ -227,13 +234,20 @@ class AudioManager {
      */
     async stopRecording() {
         try {
+            console.log('[AudioManager] stopRecording() called');
+            console.log('[AudioManager] isRecording:', this.isRecording);
+            console.log('[AudioManager] recorder:', this.recorder);
+
             if (!this.isRecording || !this.recorder) {
-                console.warn('Not recording');
+                console.warn('[AudioManager] Not recording - returning empty string');
                 return '';
             }
 
+            console.log('[AudioManager] Creating promise to wait for recorder.onstop');
+
             return new Promise((resolve, reject) => {
                 this.recorder.onstop = async () => {
+                    console.log('[AudioManager] recorder.onstop fired!');
                     this.isRecording = false;
 
                     if (this.stream) {
@@ -243,25 +257,195 @@ class AudioManager {
 
                     try {
                         const audioBlob = new Blob(this.chunks, { type: 'audio/webm' });
-                        console.log('Recording stopped, blob size:', audioBlob.size);
+                        console.log('[AudioManager] Recording stopped, blob size:', audioBlob.size, 'bytes');
+                        console.log('[AudioManager] Chunks collected:', this.chunks.length);
+
+                        if (audioBlob.size === 0) {
+                            console.error('[AudioManager] Audio blob is empty! No data recorded.');
+                            throw new Error('No audio data recorded');
+                        }
 
                         this.showStatus('Transcribing...', 'info');
+                        console.log('[AudioManager] Calling uploadAudio()...');
                         const text = await this.uploadAudio(audioBlob);
+                        console.log('[AudioManager] uploadAudio() returned:', text);
 
                         resolve(text);
                     } catch (error) {
+                        console.error('[AudioManager] Error in onstop handler:', error);
                         reject(error);
                     }
                 };
 
+                console.log('[AudioManager] Calling recorder.stop()...');
                 this.recorder.stop();
+                console.log('[AudioManager] recorder.stop() called, waiting for onstop event');
             });
 
         } catch (error) {
-            console.error('Failed to stop recording:', error);
+            console.error('[AudioManager] Failed to stop recording:', error);
             this.showError('Recording upload failed: ' + error.message);
             throw error;
         }
+    }
+
+    /**
+     * Start continuous audio streaming with backend VAD
+     *
+     * Opens WebSocket connection and streams audio chunks to backend.
+     * Backend handles VAD and sends back transcriptions when silence detected.
+     *
+     * @async
+     * @param {Function} onTranscription - Callback for when transcription is received
+     * @returns {Promise<void>}
+     * @throws {Error} When streaming fails to start
+     */
+    async startAudioStreaming(onTranscription) {
+        try {
+            if (this.isStreaming) {
+                console.warn('[AudioManager] Already streaming');
+                return;
+            }
+
+            console.log('[AudioManager] Starting audio streaming...');
+            this.onStreamTranscription = onTranscription;
+
+            // Get base URL for WebSocket
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}/api/audio/stream`;
+
+            console.log('[AudioManager] Connecting to WebSocket:', wsUrl);
+
+            // Open WebSocket connection
+            this.audioStreamWS = new WebSocket(wsUrl);
+
+            this.audioStreamWS.onopen = async () => {
+                console.log('[AudioManager] WebSocket connected');
+
+                try {
+                    // Start microphone capture
+                    this.stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            channelCount: 1,
+                            sampleRate: 16000,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+
+                    // Create audio context
+                    this.streamAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: 16000
+                    });
+
+                    const source = this.streamAudioContext.createMediaStreamSource(this.stream);
+
+                    // Create script processor for capturing audio chunks
+                    // Buffer size: 4096 samples = ~256ms at 16kHz
+                    this.streamProcessor = this.streamAudioContext.createScriptProcessor(4096, 1, 1);
+
+                    this.streamProcessor.onaudioprocess = (e) => {
+                        if (this.audioStreamWS && this.audioStreamWS.readyState === WebSocket.OPEN) {
+                            // Get audio data as Float32Array
+                            const audioData = e.inputBuffer.getChannelData(0);
+
+                            // Send as binary to backend
+                            this.audioStreamWS.send(audioData.buffer);
+                        }
+                    };
+
+                    // Connect audio graph
+                    source.connect(this.streamProcessor);
+                    this.streamProcessor.connect(this.streamAudioContext.destination);
+
+                    this.isStreaming = true;
+                    console.log('[AudioManager] Audio streaming started');
+                    this.showStatus('Listening...', 'info');
+
+                } catch (error) {
+                    console.error('[AudioManager] Failed to start audio capture:', error);
+                    this.audioStreamWS.close();
+                    throw error;
+                }
+            };
+
+            this.audioStreamWS.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('[AudioManager] Received from backend:', data);
+
+                    if (data.type === 'transcription') {
+                        if (data.text && data.text.trim()) {
+                            console.log('[AudioManager] Transcription received:', data.text);
+                            if (this.onStreamTranscription) {
+                                this.onStreamTranscription(data.text, data.language);
+                            }
+                        } else if (data.error) {
+                            console.warn('[AudioManager] Backend error:', data.error);
+                        }
+                    } else if (data.type === 'error') {
+                        console.error('[AudioManager] Backend error:', data.error);
+                        this.showError(data.error);
+                    }
+                } catch (error) {
+                    console.error('[AudioManager] Error parsing WebSocket message:', error);
+                }
+            };
+
+            this.audioStreamWS.onerror = (error) => {
+                console.error('[AudioManager] WebSocket error:', error);
+                this.showError('Audio streaming connection error');
+            };
+
+            this.audioStreamWS.onclose = () => {
+                console.log('[AudioManager] WebSocket closed');
+                this.stopAudioStreaming();
+            };
+
+        } catch (error) {
+            console.error('[AudioManager] Failed to start audio streaming:', error);
+            this.showError('Failed to start audio streaming: ' + error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Stop continuous audio streaming
+     */
+    stopAudioStreaming() {
+        console.log('[AudioManager] Stopping audio streaming...');
+
+        // Stop audio processing
+        if (this.streamProcessor) {
+            this.streamProcessor.disconnect();
+            this.streamProcessor = null;
+        }
+
+        // Close audio context
+        if (this.streamAudioContext) {
+            this.streamAudioContext.close();
+            this.streamAudioContext = null;
+        }
+
+        // Stop microphone stream
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+            this.stream = null;
+        }
+
+        // Close WebSocket
+        if (this.audioStreamWS) {
+            this.audioStreamWS.close();
+            this.audioStreamWS = null;
+        }
+
+        this.isStreaming = false;
+        this.onStreamTranscription = null;
+
+        console.log('[AudioManager] Audio streaming stopped');
+        this.showStatus('', 'info');
     }
 
     /**
@@ -514,43 +698,61 @@ class AudioManager {
      */
     async uploadAudio(blob) {
         try {
+            console.log('[AudioManager] uploadAudio() called with blob size:', blob.size);
+            console.log('[AudioManager] Blob type:', blob.type);
+
             const formData = new FormData();
             formData.append('audio', blob, 'recording.webm');
+            console.log('[AudioManager] FormData created, appended audio blob');
+
+            const endpoint = '/api/audio/upload';
+            const sessionId = window.sessionId || '';
+            console.log('[AudioManager] Uploading to:', endpoint);
+            console.log('[AudioManager] Session ID:', sessionId);
+            console.log('[AudioManager] Using backendConnector:', !!window.backendConnector);
 
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/audio/upload', {
+                ? await window.backendConnector.fetch(endpoint, {
                     method: 'POST',
                     headers: {
-                        'X-Session-ID': window.sessionId || ''
+                        'X-Session-ID': sessionId
                     },
                     body: formData
                 })
-                : await fetch('/api/audio/upload', {
+                : await fetch(endpoint, {
                     method: 'POST',
                     headers: {
-                        'X-Session-ID': window.sessionId || ''
+                        'X-Session-ID': sessionId
                     },
                     body: formData
                 });
 
+            console.log('[AudioManager] Response received, status:', response.status);
+            console.log('[AudioManager] Response ok:', response.ok);
+
             if (!response.ok) {
+                console.error('[AudioManager] Response not ok, status:', response.status);
                 const error = await response.json();
+                console.error('[AudioManager] Error response:', error);
                 throw new Error(error.error || 'Upload failed');
             }
 
             const data = await response.json();
+            console.log('[AudioManager] Response data:', data);
 
             if (data.status !== 'success' || !data.text) {
+                console.error('[AudioManager] Invalid response data:', data);
                 throw new Error('Transcription failed or returned empty text');
             }
 
-            console.log('Transcription successful:', data.text);
+            console.log('[AudioManager] Transcription successful:', data.text);
             this.showStatus('Transcription complete', 'success');
 
             return data.text;
 
         } catch (error) {
-            console.error('Audio upload failed:', error);
+            console.error('[AudioManager] Audio upload failed:', error);
+            console.error('[AudioManager] Error stack:', error.stack);
             this.showError('Transcription failed: ' + error.message);
             throw error;
         }
