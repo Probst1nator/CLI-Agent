@@ -89,32 +89,39 @@ class AudioManager {
         // VAD (Voice Activity Detection) settings
 
         /**
-         * Flag to enable/disable VAD recording mode
+         * WebSocket for continuous audio streaming
+         * @type {WebSocket}
+         * @private
+         */
+        this.audioStreamWS = null;
+
+        /**
+         * AudioContext for processing streaming audio
+         * @type {AudioContext}
+         * @private
+         */
+        this.streamAudioContext = null;
+
+        /**
+         * ScriptProcessor for capturing audio chunks
+         * @type {ScriptProcessorNode}
+         * @private
+         */
+        this.streamProcessor = null;
+
+        /**
+         * Flag indicating if streaming mode is active
          * @type {boolean}
          * @private
          */
-        this.vadEnabled = false;
+        this.isStreaming = false;
 
         /**
-         * Amplitude threshold for voice detection (0.0 to 1.0)
-         * @type {number}
+         * Callback for when streaming transcription is received
+         * @type {Function}
          * @private
          */
-        this.vadThreshold = 0.02;
-
-        /**
-         * Duration of silence (in seconds) before auto-stopping recording
-         * @type {number}
-         * @private
-         */
-        this.vadSilenceDuration = 2.0;
-
-        /**
-         * Maximum recording duration (in seconds) for VAD mode
-         * @type {number}
-         * @private
-         */
-        this.vadMaxDuration = 20.0;
+        this.onStreamTranscription = null;
 
         /**
          * Flag indicating if VAD has detected speech and started recording
@@ -280,6 +287,165 @@ class AudioManager {
             this.showError('Recording upload failed: ' + error.message);
             throw error;
         }
+    }
+
+    /**
+     * Start continuous audio streaming with backend VAD
+     *
+     * Opens WebSocket connection and streams audio chunks to backend.
+     * Backend handles VAD and sends back transcriptions when silence detected.
+     *
+     * @async
+     * @param {Function} onTranscription - Callback for when transcription is received
+     * @returns {Promise<void>}
+     * @throws {Error} When streaming fails to start
+     */
+    async startAudioStreaming(onTranscription) {
+        try {
+            if (this.isStreaming) {
+                console.warn('[AudioManager] Already streaming');
+                return;
+            }
+
+            console.log('[AudioManager] Starting audio streaming...');
+            this.onStreamTranscription = onTranscription;
+
+            // Get base URL for WebSocket
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            const wsUrl = `${protocol}//${host}/api/audio/stream`;
+
+            console.log('[AudioManager] Connecting to WebSocket:', wsUrl);
+
+            // Open WebSocket connection
+            this.audioStreamWS = new WebSocket(wsUrl);
+
+            this.audioStreamWS.onopen = async () => {
+                console.log('[AudioManager] WebSocket connected');
+
+                try {
+                    // Start microphone capture
+                    this.stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            channelCount: 1,
+                            sampleRate: 16000,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+
+                    // Create audio context
+                    this.streamAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+                        sampleRate: 16000
+                    });
+
+                    const source = this.streamAudioContext.createMediaStreamSource(this.stream);
+
+                    // Create script processor for capturing audio chunks
+                    // Buffer size: 4096 samples = ~256ms at 16kHz
+                    this.streamProcessor = this.streamAudioContext.createScriptProcessor(4096, 1, 1);
+
+                    this.streamProcessor.onaudioprocess = (e) => {
+                        if (this.audioStreamWS && this.audioStreamWS.readyState === WebSocket.OPEN) {
+                            // Get audio data as Float32Array
+                            const audioData = e.inputBuffer.getChannelData(0);
+
+                            // Send as binary to backend
+                            this.audioStreamWS.send(audioData.buffer);
+                        }
+                    };
+
+                    // Connect audio graph
+                    source.connect(this.streamProcessor);
+                    this.streamProcessor.connect(this.streamAudioContext.destination);
+
+                    this.isStreaming = true;
+                    console.log('[AudioManager] Audio streaming started');
+                    this.showStatus('Listening...', 'info');
+
+                } catch (error) {
+                    console.error('[AudioManager] Failed to start audio capture:', error);
+                    this.audioStreamWS.close();
+                    throw error;
+                }
+            };
+
+            this.audioStreamWS.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('[AudioManager] Received from backend:', data);
+
+                    if (data.type === 'transcription') {
+                        if (data.text && data.text.trim()) {
+                            console.log('[AudioManager] Transcription received:', data.text);
+                            if (this.onStreamTranscription) {
+                                this.onStreamTranscription(data.text, data.language);
+                            }
+                        } else if (data.error) {
+                            console.warn('[AudioManager] Backend error:', data.error);
+                        }
+                    } else if (data.type === 'error') {
+                        console.error('[AudioManager] Backend error:', data.error);
+                        this.showError(data.error);
+                    }
+                } catch (error) {
+                    console.error('[AudioManager] Error parsing WebSocket message:', error);
+                }
+            };
+
+            this.audioStreamWS.onerror = (error) => {
+                console.error('[AudioManager] WebSocket error:', error);
+                this.showError('Audio streaming connection error');
+            };
+
+            this.audioStreamWS.onclose = () => {
+                console.log('[AudioManager] WebSocket closed');
+                this.stopAudioStreaming();
+            };
+
+        } catch (error) {
+            console.error('[AudioManager] Failed to start audio streaming:', error);
+            this.showError('Failed to start audio streaming: ' + error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Stop continuous audio streaming
+     */
+    stopAudioStreaming() {
+        console.log('[AudioManager] Stopping audio streaming...');
+
+        // Stop audio processing
+        if (this.streamProcessor) {
+            this.streamProcessor.disconnect();
+            this.streamProcessor = null;
+        }
+
+        // Close audio context
+        if (this.streamAudioContext) {
+            this.streamAudioContext.close();
+            this.streamAudioContext = null;
+        }
+
+        // Stop microphone stream
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+            this.stream = null;
+        }
+
+        // Close WebSocket
+        if (this.audioStreamWS) {
+            this.audioStreamWS.close();
+            this.audioStreamWS = null;
+        }
+
+        this.isStreaming = false;
+        this.onStreamTranscription = null;
+
+        console.log('[AudioManager] Audio streaming stopped');
+        this.showStatus('', 'info');
     }
 
     /**
