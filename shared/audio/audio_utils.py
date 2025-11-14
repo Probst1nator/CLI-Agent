@@ -18,27 +18,31 @@ from termcolor import colored
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from core.providers.cls_groq_interface import GroqAPI
+# Lazy import GroqAPI only when needed (optional dependency)
+# from core.providers.cls_groq_interface import GroqAPI
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import base64
 import os
 
-from speech_recognition import Microphone, Recognizer, WaitTimeoutError
+# Lazy import speech_recognition only when needed (optional dependency for audio)
+# from speech_recognition import Microphone, Recognizer, WaitTimeoutError
 
 from core.globals import g
 
 # Moved pdfminer imports to lazy loading in functions that need them
 from core.providers.cls_ollama_interface import OllamaClient
 
-r: Optional[Recognizer] = None
-def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
+r: Optional['Recognizer'] = None  # Type hint as string to avoid import
+def calibrate_microphone(calibration_duration: int = 1):  # Return type removed to avoid import
     """
     Calibrate the microphone for ambient noise.
 
     Returns:
         sr.Microphone: The calibrated microphone.
     """
+    from speech_recognition import Microphone, Recognizer  # Lazy import
+
     global r, source
     if not r:
         import pyaudio  # Lazy import
@@ -139,8 +143,9 @@ def listen_microphone(
                     print(colored("☁️ Using cloud transcription with local fallback", "blue"))
                     cloud_success = False
 
-                    # First try Groq API
+                    # First try Groq API (lazy import)
                     try:
+                        from core.providers.cls_groq_interface import GroqAPI
                         transcription, detected_language = GroqAPI.transcribe_audio(temp_audio_file_path)
                         print(colored("✅ Groq cloud transcription successful", "green"))
                         cloud_success = True
@@ -176,8 +181,11 @@ def listen_microphone(
 
                 print("Whisper transcription: " + colored(transcription, "green"))
 
-        except WaitTimeoutError:
-            print(colored("Listening timed out. No speech detected.", "red"))
+        except Exception as timeout_error:
+            # Lazy import for exception handling
+            from speech_recognition import WaitTimeoutError
+            if isinstance(timeout_error, WaitTimeoutError):
+                print(colored("Listening timed out. No speech detected.", "red"))
         except Exception as e:
             print(colored(f"An error occurred: {str(e)}", "red"))
         finally:
