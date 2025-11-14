@@ -35,7 +35,7 @@ arxiv>=2.0.0  # arXiv API for academic paper search
 # scholarly>=1.7.0  # Google Scholar scraper (optional, may be unreliable, has build issues in some environments)
 
 # VibeVoice TTS Dependencies (optional - high-quality speech synthesis)
-transformers>=4.48.0  # Hugging Face transformers for VibeVoice and local models
+transformers>=4.40.0,<4.47.0  # Hugging Face transformers for VibeVoice and local models (4.46.3 max for Python 3.8)
 torch>=2.0.0  # PyTorch for neural models
 scipy>=1.9.0  # Audio processing and resampling
 sounddevice>=0.4.0  # Audio playback
