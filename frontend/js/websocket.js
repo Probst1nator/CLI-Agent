@@ -724,6 +724,12 @@ class WebSocketManager {
             return;
         }
 
+        // Handle voice_transcription events (from CLI voice input)
+        if (data.type === 'voice_transcription') {
+            this.emit('voice_transcription', data);
+            return;
+        }
+
         // Handle configuration messages
         if (data.type === 'config' && data.action === 'connection_init') {
             this.handleConnectionConfig(data);
