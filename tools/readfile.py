@@ -445,9 +445,11 @@ RELATED: <help>editfile</help> <help>deletelines</help> <help>insertline</help>
             # Register with tool context if available
             if TOOL_CONTEXT_AVAILABLE:
                 tool_context.add_base64_image(base64_data, description)
-                return f"📸 Image loaded: {description}\n[Image has been processed and is now available for analysis]"
-            else:
-                return f"📸 Image detected: {description}\n[Warning: Tool context not available - image analysis may be limited]"
+
+            # Return image data in a format the frontend can detect and render
+            # Using a special marker that the frontend will parse to display the actual image
+            data_url = f"data:{mime_type or 'image/png'};base64,{base64_data}"
+            return f"📸 Image loaded: {description}\n[CLI_AGENT_IMAGE:{data_url}]"
 
         except Exception as e:
             return f"Error processing image file '{filepath}': {str(e)}"
