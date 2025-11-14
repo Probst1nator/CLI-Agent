@@ -1947,17 +1947,20 @@ class VisualResponseApp {
             }
 
             // Handle microphone recording (simplified - no VAD)
+            console.log('[VoiceButton] isActive:', isActive, 'audioManager:', !!this.audioManager);
             if (this.audioManager) {
                 if (isActive) {
                     // Start recording
+                    console.log('[VoiceButton] Starting recording...');
                     try {
                         window.logDebug('🎤 Starting recording...');
                         await this.audioManager.startRecording();
+                        console.log('[VoiceButton] startRecording() completed successfully');
                         if (typeof showToast === 'function') {
                             showToast('🎤 Recording... Click again to stop', 'info');
                         }
                     } catch (error) {
-                        console.error('Failed to start recording:', error);
+                        console.error('[VoiceButton] Failed to start recording:', error);
 
                         // Show user-friendly error message
                         if (typeof showToast === 'function') {
@@ -1977,16 +1980,20 @@ class VisualResponseApp {
                     }
                 } else {
                     // Stop recording and get transcription from backend
+                    console.log('[VoiceButton] Stopping recording...');
                     try {
                         if (typeof showToast === 'function') {
                             showToast('⏳ Processing audio...', 'info');
                         }
 
+                        console.log('[VoiceButton] Calling stopRecording()...');
                         const transcription = await this.audioManager.stopRecording();
+                        console.log('[VoiceButton] stopRecording() returned:', transcription);
                         window.logDebug('🎤 Recording stopped, transcription:', transcription);
 
                         // Populate input field with transcription for user review
                         if (transcription && transcription.trim()) {
+                            console.log('[VoiceButton] Populating input field with transcription');
                             this.chatInput.value = transcription.trim();
                             this.chatInput.focus();
 
@@ -1997,13 +2004,15 @@ class VisualResponseApp {
 
                             window.logDebug('✓ Transcription populated in input field');
                         } else {
+                            console.warn('[VoiceButton] Empty transcription received');
                             window.logWarn('⚠️ Empty transcription received');
                             if (typeof showToast === 'function') {
                                 showToast('⚠️ No speech detected - please try again', 'warning');
                             }
                         }
                     } catch (error) {
-                        console.error('Failed to stop recording:', error);
+                        console.error('[VoiceButton] Failed to stop recording:', error);
+                        console.error('[VoiceButton] Error stack:', error.stack);
 
                         // Show user-friendly error message
                         if (typeof showToast === 'function') {
@@ -2011,6 +2020,8 @@ class VisualResponseApp {
                         }
                     }
                 }
+            } else {
+                console.warn('[VoiceButton] No audioManager available!');
             }
 
             // Change icon based on state
