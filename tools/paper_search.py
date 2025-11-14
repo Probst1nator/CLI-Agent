@@ -56,9 +56,10 @@ PARAMETERS:
   <arxiv_ids> - Comma-separated IDs for direct lookup (optional)
 
 QUERY HANDLING:
-  Simple queries (e.g., "artificial intelligence", "LLM", "transformers") are automatically
-  searched across all fields (title, abstract, authors, comments) using the 'all:' prefix.
-  Advanced queries with field prefixes or boolean operators are used as-is.
+  Simple queries (e.g., "artificial intelligence", "LLM", "transformers") are searched
+  across multiple fields (title, abstract, authors, comments) by default.
+  Advanced queries with field prefixes (ti:, au:, abs:) or boolean operators (AND, OR, ANDNOT)
+  provide more precise control over search results.
 
 EXAMPLES:
   Basic: <paper_search><query>neural networks</query></paper_search>
@@ -162,20 +163,10 @@ RELATED: <help>websearch</help> <help>readfile</help>
         """
         query_parts = []
 
-        # Add base query with field prefix if needed
+        # Add base query
         if query:
-            # Check if query already has field prefixes or boolean operators
-            has_field_prefix = bool(re.search(r'\b(ti|au|abs|cat|co|jr|all):', query.lower()))
-            has_boolean = bool(re.search(r'\b(AND|OR|ANDNOT)\b', query))
-
-            if has_field_prefix or has_boolean:
-                # Query already has advanced syntax, use as-is
-                query_parts.append(query)
-            else:
-                # Simple query without field prefix - search across all fields for better results
-                # Using 'all:' searches across title, abstract, authors, comments, etc.
-                query_parts.append(f'all:{query}')
-                logger.debug(f"Added 'all:' prefix to simple query: {query}")
+            # Pass query as-is - arXiv API searches across title, abstract, authors by default
+            query_parts.append(query)
 
         # Add author filter if not already in query
         if author and 'au:' not in query.lower():
@@ -241,7 +232,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
         return filtered
 
     @staticmethod
-    async def _search_arxiv_by_ids(arxiv_ids: List[str]) -> List[Dict]:
+    async def _search_arxiv_by_ids(arxiv_ids: List[str]) -> tuple[List[Dict], Optional[str]]:
         """
         Look up papers by arXiv IDs directly.
 
@@ -249,7 +240,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
             arxiv_ids: List of arXiv IDs (e.g., ['2103.14030', '2010.11929'])
 
         Returns:
-            List of paper dictionaries with metadata
+            Tuple of (List of paper dictionaries, error message if any)
         """
         try:
             import arxiv
@@ -286,14 +277,16 @@ RELATED: <help>websearch</help> <help>readfile</help>
                 papers.append(paper)
 
             logger.info(f"Retrieved {len(papers)} papers by ID")
-            return papers
+            return papers, None
 
         except ImportError:
-            logger.error("arxiv library not installed. Install with: pip install arxiv")
-            return []
+            error_msg = "The 'arxiv' library is not installed. Please install it with: pip install arxiv"
+            logger.error(error_msg)
+            return [], error_msg
         except Exception as e:
+            error_msg = f"Error searching arXiv: {str(e)}"
             logger.error(f"Error looking up arXiv papers by ID: {e}", exc_info=True)
-            return []
+            return [], error_msg
 
     @staticmethod
     async def _search_arxiv(
@@ -301,7 +294,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
         max_results: int,
         sort_by: str = "relevance",
         sort_order: str = "descending"
-    ) -> List[Dict]:
+    ) -> tuple[List[Dict], Optional[str]]:
         """
         Search arXiv for papers using the official arXiv API.
 
@@ -312,7 +305,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
             sort_order: Sort order - 'ascending' or 'descending'
 
         Returns:
-            List of paper dictionaries with metadata
+            Tuple of (List of paper dictionaries, error message if any)
         """
         try:
             import arxiv
@@ -367,14 +360,16 @@ RELATED: <help>websearch</help> <help>readfile</help>
                 papers.append(paper)
 
             logger.info(f"Found {len(papers)} papers on arXiv")
-            return papers
+            return papers, None
 
         except ImportError:
-            logger.error("arxiv library not installed. Install with: pip install arxiv")
-            return []
+            error_msg = "The 'arxiv' library is not installed. Please install it with: pip install arxiv"
+            logger.error(error_msg)
+            return [], error_msg
         except Exception as e:
+            error_msg = f"Error searching arXiv: {str(e)}"
             logger.error(f"Error searching arXiv: {e}", exc_info=True)
-            return []
+            return [], error_msg
 
     @staticmethod
     async def _search_google_scholar(query: str, max_results: int, sort_by: str = "relevance") -> List[Dict]:
@@ -565,7 +560,10 @@ RELATED: <help>websearch</help> <help>readfile</help>
                 logger.info(f"Direct arXiv ID lookup: {arxiv_ids}")
                 print(f"🔎 Looking up {len(arxiv_ids)} papers by arXiv ID...")
 
-                papers = await paper_search._search_arxiv_by_ids(arxiv_ids)
+                papers, error = await paper_search._search_arxiv_by_ids(arxiv_ids)
+
+                if error:
+                    return f"Error: {error}"
 
                 if not papers:
                     return f"No papers found for IDs: {', '.join(arxiv_ids)}"
@@ -641,14 +639,22 @@ RELATED: <help>websearch</help> <help>readfile</help>
 
             # Perform searches based on source parameter
             all_papers = []
+            search_error = None
 
             if source in ['arxiv', 'both']:
-                arxiv_papers = await paper_search._search_arxiv(enhanced_query, max_results, sort_by, sort_order)
-                all_papers.extend(arxiv_papers)
+                arxiv_papers, error = await paper_search._search_arxiv(enhanced_query, max_results, sort_by, sort_order)
+                if error:
+                    search_error = error
+                else:
+                    all_papers.extend(arxiv_papers)
 
             if source in ['scholar', 'both']:
                 scholar_papers = await paper_search._search_google_scholar(query, max_results, sort_by)
                 all_papers.extend(scholar_papers)
+
+            # If there was an error and no papers from other sources, return the error
+            if search_error and not all_papers:
+                return f"Error: {search_error}"
 
             # Apply date filtering if specified
             if date_from or date_to:
