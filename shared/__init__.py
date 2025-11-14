@@ -6,7 +6,8 @@ used across all CLI-Agent tools and projects.
 """
 
 # Core shared utilities
-from .audio import *
+# Audio imports are lazy-loaded when needed (heavy dependencies)
+# from .audio import *
 from .common_utils import extract_blocks
 from .dia_helper import get_dia_model
 from .path_resolver import PathResolver

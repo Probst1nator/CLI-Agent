@@ -24,27 +24,30 @@ except (ImportError, RuntimeError) as e:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from core.providers.cls_groq_interface import GroqAPI
+# Lazy import GroqAPI only when needed (optional dependency)
+# from core.providers.cls_groq_interface import GroqAPI
 
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import base64
 import os
 
-from speech_recognition import Microphone, Recognizer, WaitTimeoutError
+# Lazy import speech_recognition only when needed (optional dependency for audio)
+# from speech_recognition import Microphone, Recognizer, WaitTimeoutError
 
-from core.globals import g
+# Lazy import audio-related dependencies only when needed
+# from core.globals import g
+# from core.providers.cls_ollama_interface import OllamaClient
 
-# Moved pdfminer imports to lazy loading in functions that need them
-from core.providers.cls_ollama_interface import OllamaClient
-
-r: Optional[Recognizer] = None
-def calibrate_microphone(calibration_duration: int = 1) -> Microphone:
+r: Optional['Recognizer'] = None  # Type hint as string to avoid import
+def calibrate_microphone(calibration_duration: int = 1):  # Return type removed to avoid import
     """
     Calibrate the microphone for ambient noise.
 
     Returns:
         sr.Microphone: The calibrated microphone.
     """
+    from speech_recognition import Microphone, Recognizer  # Lazy import
+
     global r, source
     if not r:
         import pyaudio  # Lazy import
@@ -74,6 +77,7 @@ def listen_microphone(
     Returns:
     tuple[str, str, Union[bool, str]]: (transcribed text from the audio, language, used wake word)
     """
+    from core.globals import g  # Lazy import
     from py_classes.cls_pyaihost_interface import PyAiHost
     global r, source
     if not r:
@@ -126,8 +130,9 @@ def listen_microphone(
                     # Try cloud-based transcription with multiple fallbacks
                     cloud_success = False
 
-                    # First try Groq API
+                    # First try Groq API (lazy import)
                     try:
+                        from core.providers.cls_groq_interface import GroqAPI
                         transcription, detected_language = GroqAPI.transcribe_audio(temp_audio_file_path)
                         print(colored("✅ Groq cloud transcription successful", "green"))
                         cloud_success = True
@@ -163,8 +168,11 @@ def listen_microphone(
 
                 print("Whisper transcription: " + colored(transcription, "green"))
 
-        except WaitTimeoutError:
-            print(colored("Listening timed out. No speech detected.", "red"))
+        except Exception as timeout_error:
+            # Lazy import for exception handling
+            from speech_recognition import WaitTimeoutError
+            if isinstance(timeout_error, WaitTimeoutError):
+                print(colored("Listening timed out. No speech detected.", "red"))
         except Exception as e:
             print(colored(f"An error occurred: {str(e)}", "red"))
         finally:
@@ -421,6 +429,9 @@ def extract_blocks(text: str, language: str | Optional[list[str]] = None) -> lis
 
 
 def update_cmd_collection():
+    from core.globals import g  # Lazy import
+    from core.providers.cls_ollama_interface import OllamaClient  # Lazy import
+
     client = chromadb.PersistentClient(g.CLIAGENT_PERSISTENT_STORAGE_PATH)
     collection = client.get_or_create_collection(name="commands")
     all_commands = get_atuin_history(200)
@@ -436,7 +447,7 @@ def update_cmd_collection():
                     documents=[command]
                 )
 
-def create_rag_prompt(results: chromadb.QueryResult, user_query: str) -> str:
+def create_rag_prompt(results: 'chromadb.QueryResult', user_query: str) -> str:
     if not results['documents'] or not results['metadatas']:
         return "The knowledge database seems empty, please report this to the user as this is likely a bug. A system-supervisor should be informed."
     # Group documents by source
