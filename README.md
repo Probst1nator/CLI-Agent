@@ -52,11 +52,11 @@ python main.py --isolated --gui  # Web interface in container
 ```
 
 **Benefits**: Full isolation, no dependency conflicts, auto-syncs latest code
-**See:** [Isolated Mode Docs](docs/ISOLATED_MODE.md) for details.
+**See:** [Isolated Mode Docs](docker_files/docs/ISOLATED_MODE.md) for details.
 
 ### 3. Multi-User Production (Docker) - EXPERIMENTAL ⚠️
 
-**Status**: Experimental - not production-tested. See [INFRASTRUCTURE_STATUS.md](docs/INFRASTRUCTURE_STATUS.md).
+**Status**: Experimental - not production-tested. See [INFRASTRUCTURE_STATUS.md](infrastructure/docs/INFRASTRUCTURE_STATUS.md).
 
 Deploy CLI-Agent as a web service where each user gets an isolated container:
 
@@ -65,38 +65,9 @@ Deploy CLI-Agent as a web service where each user gets an isolated container:
 ./saas_scripts/deploy_infrastructure.sh  # Deploy
 ```
 
-**Docs**: [Multi-User Architecture](docs/MULTI_USER_ARCHITECTURE.md) | [Deployment Guide](docs/DEPLOYMENT.md)
+**Docs**: [Multi-User Architecture](api/docs/MULTI_USER_ARCHITECTURE.md) | [Deployment Guide](docker_files/docs/DEPLOYMENT.md)
 
 ## Installation
-
-### Quick Install (Recommended)
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd CLI-Agent
-```
-
-2. Run the automated installation script:
-```bash
-./install_dependencies.sh
-```
-
-This will:
-- Install system dependencies (apt packages)
-- Create a Python virtual environment (`.venv`)
-- Install all Python packages from `requirements.txt`
-- Set up your `.env` file from `.env.example`
-
-3. Activate the virtual environment and configure your API keys:
-```bash
-source .venv/bin/activate
-nano .env  # Add your API keys
-```
-
-### Manual Installation (Alternative)
-
-If you prefer to install manually or need custom configuration:
 
 1. Clone the repository:
 ```bash
@@ -137,11 +108,6 @@ cp .env.example .env
 python main.py
 ```
 
-### Running with TUI (Terminal User Interface)
-```bash
-python tui_main.py
-```
-
 ### Running Tests
 ```bash
 python run_tests.py --quick
@@ -151,8 +117,6 @@ python run_tests.py --full
 ## Architecture
 
 ### Single-User Architecture
-
-![Architecture Diagram](docs/architecture-diagram.png)
 
 - `core/`: Core AI infrastructure (LLM routing, chat, providers)
 - `shared/`: Shared utilities (audio, web, search, RAG)
@@ -176,8 +140,8 @@ Each user gets:
 - Independent session state (multi-tab support)
 
 **See:**
-- [Multi-User Architecture](docs/MULTI_USER_ARCHITECTURE.md) - Architecture details
-- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment
+- [Multi-User Architecture](api/docs/MULTI_USER_ARCHITECTURE.md) - Architecture details
+- [Deployment Guide](docker_files/docs/DEPLOYMENT.md) - Production deployment
 
 ## Configuration
 
