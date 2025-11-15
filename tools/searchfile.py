@@ -41,12 +41,14 @@ class searchfile:
             "name": "searchfile",
             "description": (
                 "Search for content in files/directories using BM25 ranking. "
-                "Directory mode finds top matching files. File mode returns matching lines with line numbers and context. "
-                "Use <help>searchfile</help> for advanced options and pattern syntax."
+                "Optional <distance_threshold> (0.0-1.0, default 0.0) for BM25 score filtering, "
+                "<file_types> (.py,.js,.ts for extension filter). "
+                "Directory mode finds top matching files. File mode returns matching lines. "
+                "Use <help>searchfile</help> for advanced options."
             ),
             "example": (
                 "<searchfile><query>authentication logic</query><path>./src</path></searchfile>\n"
-                "<searchfile><query>error|exception</query><path>./app.py</path></searchfile>"
+                "<searchfile><query>database</query><path>./src</path><file_types>.py,.js</file_types><distance_threshold>0.5</distance_threshold></searchfile>"
             )
         }
 
@@ -136,6 +138,22 @@ RELATED: <help>grepsearch</help> <help>readfile</help> <help>readdirectory</help
         else:
             params['top_k'] = 10  # Default
 
+        # Optional: distance_threshold (for BM25 filtering)
+        threshold_match = re.search(r'<distance_threshold>([\d.]+)</distance_threshold>', content, re.DOTALL)
+        if threshold_match:
+            params['distance_threshold'] = float(threshold_match.group(1))
+        else:
+            params['distance_threshold'] = 0.0  # Default
+
+        # Optional: file_types (for file filtering)
+        file_types_match = re.search(r'<file_types>(.*?)</file_types>', content, re.DOTALL)
+        if file_types_match:
+            # Parse comma-separated extensions
+            extensions = file_types_match.group(1).strip().split(',')
+            params['file_types'] = [ext.strip() for ext in extensions if ext.strip()]
+        else:
+            params['file_types'] = None  # No filtering
+
         return params
 
     @staticmethod
@@ -162,12 +180,12 @@ RELATED: <help>grepsearch</help> <help>readfile</help> <help>readdirectory</help
         return False
 
     @staticmethod
-    def _search_directory_bm25(query: str, directory: str, top_k: int) -> str:
+    def _search_directory_bm25(query: str, directory: str, top_k: int, distance_threshold: float = 0.0, file_types: list = None) -> str:
         """Search directory using BM25 ranking."""
         if not BM25_AVAILABLE:
             return searchfile._search_directory_fallback(query, directory, top_k)
 
-        logger.info(f"BM25 directory search: query='{query}', path='{directory}', top_k={top_k}")
+        logger.info(f"BM25 directory search: query='{query}', path='{directory}', top_k={top_k}, threshold={distance_threshold}, file_types={file_types}")
 
         try:
             # Collect all text files
@@ -190,6 +208,14 @@ RELATED: <help>grepsearch</help> <help>readfile</help> <help>readdirectory</help
                     if searchfile._should_ignore_file(filepath):
                         continue
 
+                    # Filter by file types if specified
+                    if file_types:
+                        file_ext = os.path.splitext(filepath)[1].lower()
+                        # Normalize extensions (handle both .py and py)
+                        normalized_types = [ext if ext.startswith('.') else f'.{ext}' for ext in file_types]
+                        if file_ext not in normalized_types:
+                            continue
+
                     try:
                         # Read file content
                         with open(filepath, encoding='utf-8', errors='ignore') as f:
@@ -205,7 +231,8 @@ RELATED: <help>grepsearch</help> <help>readfile</help> <help>readdirectory</help
                         continue
 
             if not documents:
-                return f"No readable text files found in {directory}"
+                file_type_msg = f" with extensions {file_types}" if file_types else ""
+                return f"No readable text files found in {directory}{file_type_msg}"
 
             # Create BM25 index
             bm25 = BM25Okapi(documents)
@@ -217,14 +244,14 @@ RELATED: <help>grepsearch</help> <help>readfile</help> <help>readdirectory</help
             # Get top_k results
             top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
-            # Filter out zero-score results
-            results = [(file_paths[i], scores[i]) for i in top_indices if scores[i] > 0]
+            # Filter by distance threshold
+            results = [(file_paths[i], scores[i]) for i in top_indices if scores[i] > distance_threshold]
 
             if not results:
-                return f"No files found matching query '{query}' in {directory}"
+                return f"No files found matching query '{query}' with score > {distance_threshold} in {directory}"
 
             # Format output
-            output = [f"Top {len(results)} files matching '{query}' (BM25 search):\n"]
+            output = [f"Top {len(results)} files matching '{query}' (BM25 search, threshold={distance_threshold}):\n"]
 
             for rank, (filepath, score) in enumerate(results, 1):
                 rel_path = os.path.relpath(filepath, dir_path)
@@ -371,13 +398,15 @@ RELATED: <help>grepsearch</help> <help>readfile</help> <help>readdirectory</help
             query = params['query']
             path = params['path']
             top_k = params['top_k']
+            distance_threshold = params.get('distance_threshold', 0.0)
+            file_types = params.get('file_types', None)
 
             # Resolve path
             resolved_path = Path(path).resolve()
 
             # Determine mode based on path type
             if resolved_path.is_dir():
-                return searchfile._search_directory_bm25(query, str(resolved_path), top_k)
+                return searchfile._search_directory_bm25(query, str(resolved_path), top_k, distance_threshold, file_types)
             elif resolved_path.is_file():
                 return searchfile._search_file(query, str(resolved_path))
             else:

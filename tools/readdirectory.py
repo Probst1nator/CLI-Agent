@@ -31,12 +31,12 @@ class readdirectory:
             "name": "readdirectory",
             "description": (
                 "View directory structure as a tree showing all files and subdirectories. "
-                "Respects .gitignore. Most common: <path>./src</path>. "
+                "Respects .gitignore. Optional <file_pattern> (*.py,*.js filter) and <show_sizes> (true/false for file sizes). "
                 "Use <help>readdirectory</help> for max_depth and filtering options."
             ),
             "example": (
                 "<readdirectory><path>./src</path></readdirectory>\n"
-                "<readdirectory><path>./documents</path><max_depth>2</max_depth></readdirectory>"
+                "<readdirectory><path>./src</path><file_pattern>*.py,*.js</file_pattern><show_sizes>true</show_sizes></readdirectory>"
             )
         }
 

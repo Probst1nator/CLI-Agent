@@ -19,8 +19,8 @@ class writefile:
     def get_tool_info() -> dict:
         return {
             "name": "writefile",
-            "description": "Writes or overwrites a file with specified content. Paths are resolved relative to the current working directory. Requires `<filepath>` and `<content>` tags.",
-            "example": "<writefile><filepath>./my_file.txt</filepath><content>This is the file content.</content></writefile>"
+            "description": "Writes or overwrites a file with specified content. Optional <mode> (write/append, default: write) and <encoding> (utf-8/latin-1/ascii/cp1252, default: utf-8). Paths resolved relative to current working directory. Requires `<filepath>` and `<content>` tags.",
+            "example": "<writefile><filepath>./my_file.txt</filepath><content>This is the file content.</content></writefile>\n<writefile><filepath>./logs/app.log</filepath><mode>append</mode><content>New log entry\n</content></writefile>"
         }
 
     @staticmethod
@@ -32,15 +32,23 @@ class writefile:
         try:
             filepath_match = re.search(r'<filepath>(.*?)</filepath>', content, re.DOTALL)
             content_match = re.search(r'<content>(.*?)</content>', content, re.DOTALL)
+            mode_match = re.search(r'<mode>(.*?)</mode>', content, re.DOTALL)
+            encoding_match = re.search(r'<encoding>(.*?)</encoding>', content, re.DOTALL)
 
             if not filepath_match or not content_match:
                 return "Error: Invalid format. Input must contain both <filepath> and <content> tags."
 
             filepath = filepath_match.group(1).strip()
             file_content = content_match.group(1)
+            write_mode = mode_match.group(1).strip().lower() if mode_match else 'write'
+            file_encoding = encoding_match.group(1).strip() if encoding_match else 'utf-8'
 
             if not filepath:
                 return "Error: The <filepath> tag cannot be empty."
+
+            # Validate mode
+            if write_mode not in ('write', 'append'):
+                return f"Error: Invalid mode '{write_mode}'. Must be 'write' or 'append'."
 
             # This is a specific hook for the memory compaction process.
             # It intercepts writes to a special 'MEMORY' path.
@@ -62,15 +70,22 @@ class writefile:
             parent_dir = os.path.dirname(full_path)
             os.makedirs(parent_dir, exist_ok=True)
 
-            with open(full_path, 'w', encoding='utf-8') as f:
-                f.write(file_content)
+            # Convert mode to file open mode
+            file_mode = 'a' if write_mode == 'append' else 'w'
+
+            try:
+                with open(full_path, file_mode, encoding=file_encoding) as f:
+                    f.write(file_content)
+            except (UnicodeEncodeError, LookupError) as e:
+                return f"Error: Could not write file with encoding '{file_encoding}'. Reason: {e}"
 
             # Track recently accessed file path for autocomplete
             if full_path not in g.RECENT_FILE_PATHS:
                 g.RECENT_FILE_PATHS.insert(0, full_path)
                 g.RECENT_FILE_PATHS = g.RECENT_FILE_PATHS[:g.MAX_RECENT_FILES]
 
-            return f"Successfully wrote {len(file_content)} bytes to {full_path}"
+            action = "appended" if write_mode == 'append' else "wrote"
+            return f"Successfully {action} {len(file_content)} bytes to {full_path}"
 
         except Exception as e:
             return f"Error executing writefile tool: {str(e)}"
