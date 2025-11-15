@@ -164,6 +164,12 @@ class SearchableLLMSelectbox {
         this.optionsContainer = null;
 
         /**
+         * Failure display element (shown below selectbox when failed model selected)
+         * @type {HTMLElement|null}
+         */
+        this.failureDisplay = null;
+
+        /**
          * Global click handler for click-outside-to-close
          * @type {function(Event):void|null}
          */
@@ -218,6 +224,7 @@ class SearchableLLMSelectbox {
                         <div class="llm-selectbox-loading">Loading models...</div>
                     </div>
                 </div>
+                <div class="llm-selectbox-failure-display llm-failure-reason" style="display: none;"></div>
             </div>
         `;
 
@@ -229,6 +236,7 @@ class SearchableLLMSelectbox {
         this.dropdown = this.container.querySelector('.llm-selectbox-dropdown');
         this.searchInput = this.container.querySelector('.llm-search-input');
         this.optionsContainer = this.container.querySelector('.llm-selectbox-options');
+        this.failureDisplay = this.container.querySelector('.llm-selectbox-failure-display');
     }
 
     /**
@@ -388,6 +396,15 @@ class SearchableLLMSelectbox {
                 this.selectedModel = model;
                 this.label.textContent = model.name;
                 this.label.title = `${model.provider}: ${model.name}`;
+
+                // Show/hide failure reason for deferred selection
+                if (model.status === 'failed' && model.failure_reason) {
+                    this.failureDisplay.textContent = model.failure_reason;
+                    this.failureDisplay.style.display = 'block';
+                } else {
+                    this.failureDisplay.style.display = 'none';
+                }
+
                 this.updateSelectboxWidth();
                 window.visualLogger.debug(`Successfully restored deferred selection: ${modelId}`);
                 // Don't call onSelectionChange for deferred selections to avoid duplicate events
@@ -566,6 +583,15 @@ class SearchableLLMSelectbox {
             this.selectedModel = model;
             this.label.textContent = model.name;
             this.label.title = `${model.provider}: ${model.name}`;
+
+            // Show/hide failure reason below the selectbox
+            if (model.status === 'failed' && model.failure_reason) {
+                this.failureDisplay.textContent = model.failure_reason;
+                this.failureDisplay.style.display = 'block';
+            } else {
+                this.failureDisplay.style.display = 'none';
+            }
+
             this.updateSelectboxWidth();
             this.closeDropdown();
             this.options.onSelectionChange(model);
@@ -576,6 +602,7 @@ class SearchableLLMSelectbox {
                 this.selectedModel = noneModel;
                 this.label.textContent = noneModel.name;
                 this.label.title = `${noneModel.provider}: ${noneModel.name}`;
+                this.failureDisplay.style.display = 'none';
                 this.updateSelectboxWidth();
                 this.closeDropdown();
                 this.options.onSelectionChange(noneModel);
@@ -585,6 +612,7 @@ class SearchableLLMSelectbox {
             this.selectedModel = null;
             this.label.textContent = this.options.placeholder;
             this.label.title = '';
+            this.failureDisplay.style.display = 'none';
             this.updateSelectboxWidth();
             this.closeDropdown();
             this.options.onSelectionChange(null);
@@ -780,9 +808,15 @@ class SearchableLLMSelectbox {
             model.status = 'failed';
             model.failure_reason = failureReason;
 
+            // Update failure display if this is the currently selected model
+            if (this.selectedModel && this.selectedModel.id === modelKey) {
+                this.failureDisplay.textContent = failureReason;
+                this.failureDisplay.style.display = 'block';
+            }
+
             // Re-render if dropdown is open
             if (this.isOpen) {
-                this.filterModels(this.searchQuery);
+                this.filterAndRenderOptions();
             }
         }
     }
