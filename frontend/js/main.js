@@ -311,6 +311,18 @@ class VisualResponseApp {
         this.speakBtn = null;
 
         /**
+         * Auto-send toggle checkbox for voice transcription
+         * @type {HTMLInputElement|null}
+         */
+        this.autoSendToggle = null;
+
+        /**
+         * Timer for auto-sending transcribed text
+         * @type {number|null}
+         */
+        this.autoSendTimer = null;
+
+        /**
          * Interrupt button to stop agent generation
          * @type {HTMLButtonElement|null}
          */
@@ -1260,6 +1272,21 @@ class VisualResponseApp {
         this.screenCaptureBtn = document.getElementById('screen-capture-btn');
         this.voiceBtn = document.getElementById('voice-btn');
         this.speakBtn = document.getElementById('speak-btn');
+        this.autoSendToggle = document.getElementById('auto-send-toggle');
+
+        // Initialize auto-send toggle state from localStorage
+        if (this.autoSendToggle) {
+            const savedAutoSendState = localStorage.getItem('autoSendEnabled');
+            if (savedAutoSendState !== null) {
+                this.autoSendToggle.checked = savedAutoSendState === 'true';
+            }
+
+            // Save state to localStorage when toggle changes
+            this.autoSendToggle.addEventListener('change', () => {
+                localStorage.setItem('autoSendEnabled', this.autoSendToggle.checked.toString());
+                console.log('[AutoSend] Toggle state saved:', this.autoSendToggle.checked);
+            });
+        }
 
         // Initialize screen capture manager
         this.screenCaptureManager = new ScreenCaptureManager();
@@ -1786,6 +1813,19 @@ class VisualResponseApp {
             this.handleFiles(event.target.files);
         });
 
+        // Cancel auto-send timer when user interacts with input
+        const cancelAutoSendTimer = () => {
+            if (this.autoSendTimer) {
+                console.log('[AutoSend] User interacted with input - canceling auto-send timer');
+                clearTimeout(this.autoSendTimer);
+                this.autoSendTimer = null;
+            }
+        };
+
+        this.chatInput.addEventListener('click', cancelAutoSendTimer);
+        this.chatInput.addEventListener('focus', cancelAutoSendTimer);
+        this.chatInput.addEventListener('keydown', cancelAutoSendTimer);
+
         // Drag and drop events on chat input field
         this.chatInput.addEventListener('dragover', (event) => {
             event.preventDefault();
@@ -2007,12 +2047,34 @@ class VisualResponseApp {
                                 this.chatInput.value = text.trim();
                                 this.chatInput.focus();
 
+                                // Clear any existing auto-send timer
+                                if (this.autoSendTimer) {
+                                    clearTimeout(this.autoSendTimer);
+                                    this.autoSendTimer = null;
+                                }
+
                                 // Show success feedback
                                 if (typeof showToast === 'function') {
                                     showToast('🎤 Transcription ready - review and press Enter to send', 'success');
                                 }
 
                                 window.logDebug('✓ Transcription populated in input field');
+
+                                // Start auto-send timer if toggle is enabled
+                                if (this.autoSendToggle && this.autoSendToggle.checked) {
+                                    console.log('[AutoSend] Starting 3-second auto-send timer...');
+                                    this.autoSendTimer = setTimeout(() => {
+                                        console.log('[AutoSend] Timer expired - auto-sending message');
+                                        if (this.chatInput.value.trim()) {
+                                            // Trigger form submission
+                                            this.chatForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                                            if (typeof showToast === 'function') {
+                                                showToast('✅ Auto-sent transcription', 'success');
+                                            }
+                                        }
+                                        this.autoSendTimer = null;
+                                    }, 3000);
+                                }
                             }
                         });
 
