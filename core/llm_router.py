@@ -225,6 +225,8 @@ class LlmRouter:
         self._dynamic_discovery_done = False  # Track if we've done dynamic discovery
         self._load_dynamic_model_limits()
         self.failed_models: set[str] = set()
+        # Track failure reasons per model for frontend display
+        self._model_failure_reasons: dict[str, str] = {}
         # Track cache keys used in current runtime to avoid duplicate fetches for non-zero temperature
         self.runtime_used_cache_keys: set[str] = set()
         # Lock for thread-safe cache access in MCT mode
@@ -626,6 +628,47 @@ class LlmRouter:
             return provider_info, provider_emoji
         except Exception:
             return "", ""
+
+    @classmethod
+    def get_model_statuses(cls) -> dict[str, dict[str, str]]:
+        """
+        Get status information for all models including failure reasons.
+
+        Returns:
+            dict: Dictionary mapping model keys to status info with keys:
+                - 'status': 'available' or 'failed'
+                - 'failure_reason': Error message if status is 'failed', empty otherwise
+        """
+        instance = cls()
+        instance._ensure_dynamic_models_loaded()
+
+        statuses = {}
+
+        # Get all known models
+        all_models = instance.retry_models
+
+        for model in all_models:
+            model_key = model.model_key
+            if model_key in instance.failed_models:
+                statuses[model_key] = {
+                    'status': 'failed',
+                    'failure_reason': instance._model_failure_reasons.get(model_key, 'Unknown error')
+                }
+            else:
+                statuses[model_key] = {
+                    'status': 'available',
+                    'failure_reason': ''
+                }
+
+        # Also include failed models that might not be in retry_models anymore
+        for failed_key in instance.failed_models:
+            if failed_key not in statuses:
+                statuses[failed_key] = {
+                    'status': 'failed',
+                    'failure_reason': instance._model_failure_reasons.get(failed_key, 'Unknown error')
+                }
+
+        return statuses
 
     @classmethod
     def get_model(
@@ -1291,8 +1334,21 @@ class LlmRouter:
             if model.model_key in instance.failed_models:
                 return
             instance.failed_models.add(model.model_key)
+            # Store per-model failure reason for frontend display
+            instance._model_failure_reasons[model.model_key] = error_msg
             if model in instance.retry_models:
                 instance.retry_models.remove(model)
+
+            # Broadcast model failure to frontend
+            try:
+                import asyncio
+                from api.server import broadcast_model_failure
+
+                # Run broadcast in background without awaiting
+                asyncio.create_task(broadcast_model_failure(model.model_key, error_msg))
+            except Exception as broadcast_error:
+                # Don't let broadcast errors affect model failure handling
+                logger.debug(f"Failed to broadcast model failure: {broadcast_error}")
 
         # Special handling for timeout issues - SHOW USER MESSAGE and allow retries
         if (
