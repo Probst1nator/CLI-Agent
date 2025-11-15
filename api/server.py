@@ -556,7 +556,7 @@ class VisualServer:
                     # Permission response - forward to dedicated permission queue
                     if hasattr(g, 'permission_response_queue'):
                         g.permission_response_queue.put_nowait(message_data)
-                        logger.debug(f"Routed permission response to permission_response_queue")
+                        logger.debug("Routed permission response to permission_response_queue")
                     elif hasattr(g, 'visual_input_queue'):
                         # Fallback to old queue for backward compatibility
                         g.visual_input_queue.put_nowait(message_data)

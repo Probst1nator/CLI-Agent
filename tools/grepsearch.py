@@ -26,7 +26,7 @@ class grepsearch:
             "description": (
                 "Search for regex patterns in file contents, filenames, and directories. "
                 "Respects .gitignore rules. Most common: <pattern>function_name</pattern><path>./src</path>. "
-                f"Use <help>grepsearch</help> for modes and regex syntax."
+                "Use <help>grepsearch</help> for modes and regex syntax."
             ),
             "example": (
                 "<grepsearch><pattern>my_function</pattern><path>./src</path></grepsearch>\n"

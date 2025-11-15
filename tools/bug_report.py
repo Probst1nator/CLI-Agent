@@ -1,6 +1,5 @@
 """Bug report tool for reporting unexpected tool behavior."""
 
-import os
 import re
 from datetime import datetime
 from pathlib import Path

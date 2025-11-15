@@ -239,7 +239,7 @@ async def _try_gui_permission_prompt(
                         print(colored("❌ Permission denied (GUI)", "red"))
                         return False
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Timeout means user deferred decision (e.g., switched chats)
                 print(colored("⏱️  Permission request timed out - denying by default", "yellow"))
                 print(colored("   (User may have switched chats or deferred decision)", "yellow"))

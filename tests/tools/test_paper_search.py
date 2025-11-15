@@ -2,9 +2,10 @@
 """
 Tests for the paper_search tool, particularly focusing on query handling.
 """
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Add project root to path
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))

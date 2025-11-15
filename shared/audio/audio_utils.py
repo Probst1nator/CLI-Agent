@@ -27,7 +27,6 @@ import os
 
 # Lazy import speech_recognition only when needed (optional dependency for audio)
 # from speech_recognition import Microphone, Recognizer, WaitTimeoutError
-
 from core.globals import g
 
 # Moved pdfminer imports to lazy loading in functions that need them

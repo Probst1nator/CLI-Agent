@@ -5,10 +5,9 @@ Tests for the response tool including basic output,
 empty content handling, and special character preservation.
 """
 
-import os
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 # Setup test imports
 test_root = Path(__file__).parent.parent.parent

@@ -6,7 +6,6 @@ content handling, and tool contract verification.
 The think tool is a cognitive primitive that performs no action.
 """
 
-import os
 import sys
 from pathlib import Path
 

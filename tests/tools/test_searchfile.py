@@ -5,11 +5,9 @@ Tests for the searchfile tool including file search, directory search,
 BM25 ranking, regex patterns, and error handling.
 """
 
-import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, Mock
 
 # Setup test imports
 test_root = Path(__file__).parent.parent.parent
