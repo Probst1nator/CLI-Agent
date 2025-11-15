@@ -25,12 +25,12 @@ class grepsearch:
             "name": "grepsearch",
             "description": (
                 "Search for regex patterns in file contents, filenames, and directories. "
-                "Respects .gitignore rules. Most common: <pattern>function_name</pattern><path>./src</path>. "
+                "Respects .gitignore rules. Optional <max_results> (default 100) and <context_lines> (show N lines before/after match). "
                 "Use <help>grepsearch</help> for modes and regex syntax."
             ),
             "example": (
                 "<grepsearch><pattern>my_function</pattern><path>./src</path></grepsearch>\n"
-                "<grepsearch><pattern>class.*Config</pattern><path>.</path><mode>files</mode></grepsearch>"
+                "<grepsearch><pattern>TODO</pattern><path>.</path><max_results>50</max_results><context_lines>2</context_lines></grepsearch>"
             )
         }
 

@@ -39,12 +39,12 @@ class searchconversations:
             "name": "searchconversations",
             "description": (
                 "Search archived conversations with BM25 ranking. Returns snippets, scores, "
-                "and metadata. Supports relevance/date sorting. "
+                "and metadata. Supports relevance/date sorting. Optional <date_from> and <date_to> (ISO format YYYY-MM-DD) for time-based filtering. "
                 "Use <help>searchconversations</help> for query optimization tips."
             ),
             "example": (
-                "<searchconversations><query>docker deployment</query><top_k>5</top_k>"
-                "<order_by>best_match</order_by></searchconversations>"
+                "<searchconversations><query>docker deployment</query><top_k>5</top_k></searchconversations>\n"
+                "<searchconversations><query>auth bug</query><date_from>2025-01-01</date_from><date_to>2025-01-15</date_to></searchconversations>"
             ),
         }
 
@@ -116,10 +116,14 @@ RELATED: <help>searchfile</help> <help>grepsearch</help>
                 - query: Search query (required)
                 - top_k: Max results (optional, default 10)
                 - order_by: Sort order (optional, default 'best_match')
+                - date_from: Start date filter (optional, ISO format)
+                - date_to: End date filter (optional, ISO format)
 
         Raises:
             ValueError: If required parameters missing or invalid
         """
+        from datetime import datetime
+
         # Extract query (required)
         query_match = re.search(r"<query>(.*?)</query>", content, re.DOTALL)
         if not query_match:
@@ -152,11 +156,31 @@ RELATED: <help>searchfile</help> <help>grepsearch</help>
                     f"Must be one of: {', '.join(valid_orders)}"
                 )
 
+        # Extract date_from (optional)
+        date_from = None
+        date_from_match = re.search(r"<date_from>(.*?)</date_from>", content, re.DOTALL)
+        if date_from_match:
+            date_from_str = date_from_match.group(1).strip()
+            try:
+                date_from = datetime.fromisoformat(date_from_str).timestamp()
+            except ValueError:
+                raise ValueError(f"Invalid <date_from> format: '{date_from_str}'. Use ISO format (YYYY-MM-DD)")
+
+        # Extract date_to (optional)
+        date_to = None
+        date_to_match = re.search(r"<date_to>(.*?)</date_to>", content, re.DOTALL)
+        if date_to_match:
+            date_to_str = date_to_match.group(1).strip()
+            try:
+                date_to = datetime.fromisoformat(date_to_str).timestamp()
+            except ValueError:
+                raise ValueError(f"Invalid <date_to> format: '{date_to_str}'. Use ISO format (YYYY-MM-DD)")
+
         logger.debug(
-            f"Parsed parameters: query='{query[:50]}...', top_k={top_k}, order_by={order_by}"
+            f"Parsed parameters: query='{query[:50]}...', top_k={top_k}, order_by={order_by}, date_from={date_from}, date_to={date_to}"
         )
 
-        return {"query": query, "top_k": top_k, "order_by": order_by}
+        return {"query": query, "top_k": top_k, "order_by": order_by, "date_from": date_from, "date_to": date_to}
 
     @staticmethod
     def _search_conversations(
@@ -310,9 +334,23 @@ RELATED: <help>searchfile</help> <help>grepsearch</help>
             query = params["query"]
             top_k = params["top_k"]
             order_by = params["order_by"]
+            date_from = params.get("date_from")
+            date_to = params.get("date_to")
 
             # Perform search
             results = searchconversations._search_conversations(query, top_k)
+
+            # Apply date filtering if specified
+            if date_from is not None or date_to is not None:
+                filtered_results = []
+                for result in results:
+                    timestamp = result.get("timestamp", 0)
+                    if date_from is not None and timestamp < date_from:
+                        continue
+                    if date_to is not None and timestamp > date_to:
+                        continue
+                    filtered_results.append(result)
+                results = filtered_results
 
             # Apply sorting
             sorted_results = searchconversations._apply_sorting(results, order_by)
