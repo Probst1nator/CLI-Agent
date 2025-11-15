@@ -701,6 +701,19 @@ class VisualResponseApp {
                 if (data.status === 'success' && data.state) {
                     console.log('📥 Initial state loaded:', data.state);
                     this.updateButtonStates(data.state);
+
+                    // If voice_mode is enabled in initial state, activate voice input
+                    if (data.state.voice_mode && !data.state.tts_only_mode && this.voiceBtn) {
+                        console.log('🎤 Auto-activating voice input from -v flag');
+                        // Programmatically trigger voice button to start audio streaming
+                        // Use setTimeout to ensure all initialization is complete
+                        setTimeout(() => {
+                            if (!this.voiceBtn.classList.contains('active')) {
+                                this.voiceBtn.click();
+                            }
+                        }, 100);
+                    }
+
                     // Explicitly hide interrupt button on initial load (agent is not generating)
                     this.hideInterruptButton();
                 }
