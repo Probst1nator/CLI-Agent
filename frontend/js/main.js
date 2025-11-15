@@ -5915,5 +5915,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Make it globally accessible for WebSocket messages
     window.consoleLogManager = consoleLogManager;
 
+    // Initialize todos manager
+    let todosManager = new TodosManager();
+
+    // Make it globally accessible
+    window.todosManager = todosManager;
+
     initializeApp();
 });

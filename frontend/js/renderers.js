@@ -1071,6 +1071,10 @@ class ContentRenderer {
                 // Apply special styling for think and todos tags
                 if (tool.name === 'todos') {
                     itemClass += ' special-todos';
+                    // Update todos sidebar if available
+                    if (window.todosManager) {
+                        window.todosManager.updateTodos(tool.args || '');
+                    }
                 } else if (tool.name === 'think') {
                     itemClass += ' special-think';
                 }
