@@ -2133,6 +2133,42 @@ code:not(pre > code) {
     border-color: #0056b3;
 }
 
+/* Voice button container with auto-send toggle */
+.voice-button-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.auto-send-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-color);
+    cursor: pointer;
+    user-select: none;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.auto-send-toggle-label:hover {
+    opacity: 1;
+}
+
+.auto-send-toggle {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--primary-color);
+}
+
+.auto-send-text {
+    font-size: 10px;
+    white-space: nowrap;
+}
+
 #chat-form button[type='submit'] {
     padding: 10px 20px;
     border: none;
