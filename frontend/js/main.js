@@ -602,6 +602,29 @@ class VisualResponseApp {
                 }
             });
 
+            // Listen for model_failure events to update LLM selector UI
+            this.wsManager.on('model_failure', (data) => {
+                console.log('⚠️ Model failure received:', data);
+
+                // Update all selectors in the DynamicLLMManager
+                if (this.dynamicLLMManager) {
+                    // Update each role's selectors
+                    const roles = ['override', 'autocomplete', 'router', 'planner', 'fallbacks'];
+                    roles.forEach(role => {
+                        const selectors = this.dynamicLLMManager.selectors[role];
+                        if (selectors && selectors.length > 0) {
+                            selectors.forEach(selectorInstance => {
+                                if (selectorInstance.selectbox) {
+                                    selectorInstance.selectbox.updateModelStatus(data.model_key, data.failure_reason);
+                                }
+                            });
+                        }
+                    });
+                } else {
+                    console.warn('⚠️ DynamicLLMManager not available for model failure update');
+                }
+            });
+
             // Legacy: Listen for message_end events (not currently sent by backend)
             this.wsManager.on('message_end', async (data) => {
                 if (this.speakModeEnabled && data.content) {

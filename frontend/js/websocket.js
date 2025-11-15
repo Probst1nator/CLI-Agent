@@ -718,6 +718,12 @@ class WebSocketManager {
             return;
         }
 
+        // Handle model failure events (model execution failures)
+        if (data.type === 'model_failure') {
+            this.emit('model_failure', data);
+            return;
+        }
+
         // Handle prompts_regenerated events (suggested prompts updated)
         if (data.type === 'prompts_regenerated') {
             this.emit('prompts_regenerated', data);

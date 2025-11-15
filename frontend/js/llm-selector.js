@@ -35,6 +35,8 @@
  * @property {Object|null} pricing - Pricing information
  * @property {Array<string>} capabilities - Model capabilities (vision, function-calling, etc.)
  * @property {boolean} [isNoneOption] - True if this is the "None" option
+ * @property {string} [status] - Model status ('available' or 'failed')
+ * @property {string} [failure_reason] - Failure reason if status is 'failed'
  */
 
 /**
@@ -471,21 +473,26 @@ class SearchableLLMSelectbox {
             // Provider models
             models.forEach(model => {
                 const isSelected = this.selectedModel && this.selectedModel.id === model.id;
+                const isFailed = model.status === 'failed';
                 const capabilities = model.capabilities.length > 0 ?
                     `<span class="llm-capabilities">${model.capabilities.join(', ')}</span>` : '';
 
                 const contextInfo = model.context_window > 0 ?
                     `<span class="llm-context">${this.formatContextWindow(model.context_window)}</span>` : '';
 
+                const failureReason = isFailed && model.failure_reason ?
+                    `<div class="llm-failure-reason">${this.escapeHtml(model.failure_reason)}</div>` : '';
+
                 html += `
-                    <div class="llm-selectbox-option ${isSelected ? 'selected' : ''}"
+                    <div class="llm-selectbox-option ${isSelected ? 'selected' : ''} ${isFailed ? 'failed' : ''}"
                          data-option-index="${optionIndex}"
                          data-model-id="${model.id}">
                         <div class="llm-option-main">
-                            <span class="llm-option-name">${model.name}</span>
+                            <span class="llm-option-name">${model.name}${isFailed ? ' ⚠️' : ''}</span>
                             ${contextInfo}
                         </div>
                         ${capabilities}
+                        ${failureReason}
                     </div>
                 `;
                 optionIndex++;
@@ -535,6 +542,17 @@ class SearchableLLMSelectbox {
             return `${(contextWindow / 1000).toFixed(0)}K`;
         }
         return contextWindow.toString();
+    }
+
+    /**
+     * Escape HTML to prevent XSS attacks
+     * @param {string} text - Text to escape
+     * @returns {string} Escaped text
+     */
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     /**
@@ -747,6 +765,26 @@ class SearchableLLMSelectbox {
      */
     showError(message) {
         this.optionsContainer.innerHTML = `<div class="llm-selectbox-error">${message}</div>`;
+    }
+
+    /**
+     * Update model status (called when receiving WebSocket model_failure event)
+     * @param {string} modelKey - The model key that failed
+     * @param {string} failureReason - The failure reason
+     * @returns {void}
+     */
+    updateModelStatus(modelKey, failureReason) {
+        // Find and update the model
+        const model = this.models.find(m => m.id === modelKey);
+        if (model) {
+            model.status = 'failed';
+            model.failure_reason = failureReason;
+
+            // Re-render if dropdown is open
+            if (this.isOpen) {
+                this.filterModels(this.searchQuery);
+            }
+        }
     }
 
     /**

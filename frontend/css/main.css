@@ -3573,6 +3573,33 @@ html[data-theme='light'] .iframe-focus-overlay:hover {
     display: block;
 }
 
+/* Failed model styles */
+.llm-selectbox-option.failed {
+    opacity: 0.7;
+    background: rgba(255, 68, 68, 0.05);
+}
+
+.llm-selectbox-option.failed:hover {
+    background: rgba(255, 68, 68, 0.1);
+}
+
+.llm-selectbox-option.failed .llm-option-name {
+    color: #ff4444;
+}
+
+.llm-failure-reason {
+    font-size: 10px;
+    color: #ff4444;
+    background: rgba(255, 68, 68, 0.1);
+    padding: 4px 6px;
+    border-radius: 3px;
+    margin-top: 4px;
+    border-left: 2px solid #ff4444;
+    font-family: 'Courier New', monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .llm-selectbox-loading,
 .llm-selectbox-error,
 .llm-selectbox-no-results {
@@ -3599,6 +3626,20 @@ html[data-theme='light'] .llm-selectbox-option {
 html[data-theme='light'] .llm-context {
     background: rgba(0, 122, 204, 0.1);
     color: var(--primary-color);
+}
+
+html[data-theme='light'] .llm-selectbox-option.failed {
+    background: rgba(255, 68, 68, 0.08);
+}
+
+html[data-theme='light'] .llm-selectbox-option.failed:hover {
+    background: rgba(255, 68, 68, 0.15);
+}
+
+html[data-theme='light'] .llm-failure-reason {
+    background: rgba(255, 68, 68, 0.12);
+    color: #cc0000;
+    border-left-color: #cc0000;
 }
 
 /* LLM Selection Header Integration */

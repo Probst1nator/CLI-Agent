@@ -1031,3 +1031,32 @@ async def broadcast_tool_update(tool_name: str, status: str, description: str = 
 
     except Exception as e:
         logger.debug(f"Failed to broadcast tool_update: {e}")
+
+
+async def broadcast_model_failure(model_key: str, failure_reason: str) -> None:
+    """
+    Broadcast model_failure event to all WebSocket clients.
+    Called when a model fails during generation.
+
+    Args:
+        model_key: The model key that failed (e.g., 'gemini-flash-lite-latest')
+        failure_reason: The error message explaining why the model failed
+    """
+    server = get_server()
+    if not server:
+        return
+
+    try:
+        payload = {
+            'type': 'model_failure',
+            'timestamp': time.time(),
+            'model_key': model_key,
+            'failure_reason': failure_reason,
+            'status': 'failed'
+        }
+
+        await server.broadcast(payload)
+        logger.debug(f"Broadcasted model_failure: {model_key} - {failure_reason[:100]}")
+
+    except Exception as e:
+        logger.debug(f"Failed to broadcast model_failure: {e}")
