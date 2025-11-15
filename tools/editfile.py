@@ -20,12 +20,14 @@ class editfile:
             "name": "editfile",
             "description": (
                 "Find and replace text in files. Supports global replace or line-specific edits. "
+                "Optional <regex>true</regex> for regex pattern matching (default: false). "
                 "Use <search><replace> for find/replace, or <line><replace> for line editing. "
                 "Use <help>editfile</help> for advanced options and examples."
             ),
             "example": (
                 "<editfile><filepath>./app.js</filepath><search>old_var</search><replace>new_var</replace></editfile>\n"
-                "<editfile><filepath>./main.py</filepath><line>15</line><replace>print('updated')</replace></editfile>"
+                "<editfile><filepath>./main.py</filepath><line>15</line><replace>print('updated')</replace></editfile>\n"
+                "<editfile><filepath>./config.py</filepath><regex>true</regex><search>version = ['\"]\\d+\\.\\d+\\.\\d+['\"]</search><replace>version = '2.0.0'</replace></editfile>"
             )
         }
 
@@ -95,21 +97,29 @@ RELATED: <help>insertline</help> <help>deletelines</help> <help>readfile</help>
         Supports:
         1. search/replace: replaces all occurrences of the find string
         2. Line-specific: replaces content of a specific line number
+        3. Regex mode: enables regex pattern matching
         """
         try:
             filepath_match = re.search(r'<filepath>(.*?)</filepath>', content, re.DOTALL)
             search_match = re.search(r'<search>(.*?)</search>', content, re.DOTALL)
             line_match = re.search(r'<line>(.*?)</line>', content, re.DOTALL)
             replace_match = re.search(r'<replace>(.*?)</replace>', content, re.DOTALL)
+            regex_match = re.search(r'<regex>(.*?)</regex>', content, re.DOTALL)
 
             if not filepath_match:
                 return "Error: Invalid format. Input must contain <filepath> tag."
+
+            # Parse regex flag
+            use_regex = False
+            if regex_match:
+                regex_str = regex_match.group(1).strip().lower()
+                use_regex = regex_str in ('true', '1', 'yes')
 
             # Check for line-specific editing mode
             if line_match and replace_match:
                 return editfile._edit_specific_line(filepath_match, line_match, replace_match)
             elif search_match and replace_match:
-                return editfile._find_and_replace(filepath_match, search_match, replace_match)
+                return editfile._find_and_replace(filepath_match, search_match, replace_match, use_regex)
             else:
                 return "Error: Invalid format. Input must contain either (<find> and <replace>) OR (<line> and <content>) tags."
 
@@ -117,7 +127,7 @@ RELATED: <help>insertline</help> <help>deletelines</help> <help>readfile</help>
             return f"Error executing editfile tool: {str(e)}"
 
     @staticmethod
-    def _find_and_replace(filepath_match: Match[str], find_match: Match[str], replace_match: Match[str]) -> str:
+    def _find_and_replace(filepath_match: Match[str], find_match: Match[str], replace_match: Match[str], use_regex: bool = False) -> str:
         """Handle traditional find-and-replace editing."""
         filepath = filepath_match.group(1).strip()
         find_str = find_match.group(1)
@@ -141,12 +151,28 @@ RELATED: <help>insertline</help> <help>deletelines</help> <help>readfile</help>
         with open(full_path, encoding='utf-8') as f:
             original_content = f.read()
 
-        if find_str not in original_content:
-            return f"Error: The string to find was not found in the file '{full_path}'. No changes were made."
+        # Perform replacement based on mode
+        if use_regex:
+            try:
+                # Compile regex pattern
+                pattern = re.compile(find_str)
 
-        # Note: str.replace() replaces all occurrences. To replace only the first,
-        # use: new_content = original_content.replace(find_str, replace_str, 1)
-        new_content = original_content.replace(find_str, replace_str)
+                # Check if pattern matches anything
+                if not pattern.search(original_content):
+                    return f"Error: The regex pattern was not found in the file '{full_path}'. No changes were made."
+
+                # Perform regex substitution
+                new_content = pattern.sub(replace_str, original_content)
+            except re.error as e:
+                return f"Error: Invalid regex pattern: {e}"
+        else:
+            # Traditional string replacement
+            if find_str not in original_content:
+                return f"Error: The string to find was not found in the file '{full_path}'. No changes were made."
+
+            # Note: str.replace() replaces all occurrences. To replace only the first,
+            # use: new_content = original_content.replace(find_str, replace_str, 1)
+            new_content = original_content.replace(find_str, replace_str)
 
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(new_content)

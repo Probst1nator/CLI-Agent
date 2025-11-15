@@ -423,10 +423,11 @@ class bash:
             "name": "bash",
             "description": (
                 "Executes shell commands in a persistent terminal session. "
-                "The <timeout> arg controls how long we run the session synchronously before converting it to async. (Defaults to 30s) "
+                "Optional: <timeout> (seconds, default 30), <working_dir> (execute from specific directory), "
+                "<env_vars> (KEY=value,KEY2=value2 format). "
                 "Essential for file system operations, running scripts, and system interaction."
             ),
-            "example": "<bash><timeout>5</timeout>\nls -l /app/src\n</bash>"
+            "example": "<bash><timeout>5</timeout><working_dir>./frontend</working_dir><env_vars>DEBUG=1,NODE_ENV=test</env_vars>\nnpm test\n</bash>"
         }
 
     @staticmethod
@@ -536,6 +537,20 @@ class bash:
                 # Remove timeout tag from content
                 content = content.replace(timeout_match.group(0), '').strip()
 
+            # Extract working_dir if present
+            working_dir_match = re.search(r'<working_dir>(.*?)</working_dir>', content, re.DOTALL)
+            working_dir = None
+            if working_dir_match:
+                working_dir = working_dir_match.group(1).strip()
+                content = content.replace(working_dir_match.group(0), '').strip()
+
+            # Extract env_vars if present
+            env_vars_match = re.search(r'<env_vars>(.*?)</env_vars>', content, re.DOTALL)
+            env_vars = None
+            if env_vars_match:
+                env_vars = env_vars_match.group(1).strip()
+                content = content.replace(env_vars_match.group(0), '').strip()
+
             # Handle special sleep pattern for backwards compatibility
             sleep_match = re.search(r'<bash>\nsleep (\d+)\n</bash>', content)
             if sleep_match:
@@ -547,6 +562,20 @@ class bash:
 
             if not command_content:
                 return "Error: No command provided to execute in the <bash> tool."
+
+            # Prepend environment variable exports if provided
+            if env_vars:
+                env_commands = []
+                for env_pair in env_vars.split(','):
+                    env_pair = env_pair.strip()
+                    if '=' in env_pair:
+                        env_commands.append(f"export {env_pair}")
+                if env_commands:
+                    command_content = '; '.join(env_commands) + '; ' + command_content
+
+            # Prepend cd command if working_dir provided
+            if working_dir:
+                command_content = f"cd {working_dir} && {command_content}"
 
             session = bash._get_session()
             bash_return = await session.execute(command_content, timeout=timeout)
@@ -576,8 +605,36 @@ class bash:
                 timeout = DEFAULT_TIMEOUT
                 command_content = content.strip()
 
+            # Extract working_dir if present
+            working_dir_match = re.search(r'<working_dir>(.*?)</working_dir>', command_content, re.DOTALL)
+            working_dir = None
+            if working_dir_match:
+                working_dir = working_dir_match.group(1).strip()
+                command_content = command_content.replace(working_dir_match.group(0), '').strip()
+
+            # Extract env_vars if present
+            env_vars_match = re.search(r'<env_vars>(.*?)</env_vars>', command_content, re.DOTALL)
+            env_vars = None
+            if env_vars_match:
+                env_vars = env_vars_match.group(1).strip()
+                command_content = command_content.replace(env_vars_match.group(0), '').strip()
+
             if not command_content:
                 return "" # Return empty string for empty command in silent mode
+
+            # Prepend environment variable exports if provided
+            if env_vars:
+                env_commands = []
+                for env_pair in env_vars.split(','):
+                    env_pair = env_pair.strip()
+                    if '=' in env_pair:
+                        env_commands.append(f"export {env_pair}")
+                if env_commands:
+                    command_content = '; '.join(env_commands) + '; ' + command_content
+
+            # Prepend cd command if working_dir provided
+            if working_dir:
+                command_content = f"cd {working_dir} && {command_content}"
 
             session = bash._get_session()
             bash_return = await session.execute_silent(command_content, timeout=timeout)
