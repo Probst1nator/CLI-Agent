@@ -8,7 +8,7 @@ import os
 import re
 import sys
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -125,12 +125,12 @@ RELATED: <help>websearch</help> <help>readfile</help>
         return {
             "name": "paper_search",
             "description": (
-                f"Advanced academic paper search on arXiv with field-specific queries, boolean operators, "
-                f"and filtering. Supports author, category, date range filtering, and direct ID lookup. "
-                f"Use <help>paper_search</help> for comprehensive documentation. "
-                f"Basic: <query>search terms</query>. "
-                f"Advanced: <query>au:Hinton AND ti:deep</query><category>cs.AI</category><date_from>2023-01-01</date_from>. "
-                f"Direct lookup: <arxiv_ids>2103.14030,2010.11929</arxiv_ids>"
+                "Advanced academic paper search on arXiv with field-specific queries, boolean operators, "
+                "and filtering. Supports author, category, date range filtering, and direct ID lookup. "
+                "Use <help>paper_search</help> for comprehensive documentation. "
+                "Basic: <query>search terms</query>. "
+                "Advanced: <query>au:Hinton AND ti:deep</query><category>cs.AI</category><date_from>2023-01-01</date_from>. "
+                "Direct lookup: <arxiv_ids>2103.14030,2010.11929</arxiv_ids>"
             ),
             "example": (
                 "<paper_search><query>quantum computing</query></paper_search>\n"
@@ -184,10 +184,10 @@ RELATED: <help>websearch</help> <help>readfile</help>
 
     @staticmethod
     def _filter_by_date_range(
-        papers: List[Dict],
+        papers: list[dict],
         date_from: Optional[str] = None,
         date_to: Optional[str] = None
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Filter papers by publication date range.
 
@@ -232,7 +232,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
         return filtered
 
     @staticmethod
-    async def _search_arxiv_by_ids(arxiv_ids: List[str]) -> tuple[List[Dict], Optional[str]]:
+    async def _search_arxiv_by_ids(arxiv_ids: list[str]) -> tuple[list[dict], Optional[str]]:
         """
         Look up papers by arXiv IDs directly.
 
@@ -294,7 +294,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
         max_results: int,
         sort_by: str = "relevance",
         sort_order: str = "descending"
-    ) -> tuple[List[Dict], Optional[str]]:
+    ) -> tuple[list[dict], Optional[str]]:
         """
         Search arXiv for papers using the official arXiv API.
 
@@ -372,7 +372,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
             return [], error_msg
 
     @staticmethod
-    async def _search_google_scholar(query: str, max_results: int, sort_by: str = "relevance") -> List[Dict]:
+    async def _search_google_scholar(query: str, max_results: int, sort_by: str = "relevance") -> list[dict]:
         """
         Search Google Scholar for papers.
 
@@ -434,7 +434,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
             return []
 
     @staticmethod
-    def _format_papers(papers: List[Dict]) -> str:
+    def _format_papers(papers: list[dict]) -> str:
         """
         Format paper results into a readable string.
 

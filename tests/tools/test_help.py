@@ -5,7 +5,6 @@ Tests for the help tool including tool listing,
 specific tool help, and error handling.
 """
 
-import os
 import sys
 from pathlib import Path
 

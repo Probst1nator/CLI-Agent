@@ -5,7 +5,6 @@ Tests for the readdirectory tool including basic directory listing,
 recursive traversal, max_depth handling, and .gitignore support.
 """
 
-import os
 import sys
 import tempfile
 from pathlib import Path

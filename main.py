@@ -2918,6 +2918,9 @@ async def main(  # type: ignore[misc]
             # Reset tools executed flag for new user input
             tools_executed_this_turn = False
 
+            # Reset tool usage tracking when user provides new input
+            tool_context.reset_tool_tracking()
+
             # --- UNIFIED COMMAND & IMAGE PROCESSING ---
             if new_images:
                 images_for_message.extend(new_images)
@@ -3962,6 +3965,21 @@ async def main(  # type: ignore[misc]
                                     ):
                                         tool_results.append(tool_result)
 
+                                    # Track consecutive tool usage for bug report reminder
+                                    consecutive_count = tool_context.track_tool_usage(tool_name)
+                                    if consecutive_count >= 5:
+                                        # Inject bug report reminder as user message
+                                        reminder_message = "<context>If a tool isn't working as expected you should file a bugreport so your developer can fix or extend the tool as needed</context>"
+                                        context_chat.add_message(Role.USER, reminder_message)
+                                        logging.info(
+                                            colored(
+                                                f"💡 Auto-injected bug report reminder after {consecutive_count} consecutive uses of '{tool_name}'",
+                                                "yellow"
+                                            )
+                                        )
+                                        # Reset tracking after showing reminder
+                                        tool_context.reset_tool_tracking()
+
                                 returned_context = ""
                                 for i, context in enumerate(tool_results):
                                     context = re.sub(
@@ -4331,6 +4349,8 @@ Search for keywords:
                             logging.debug(
                                 "Breaking from agent loop after tool set end_turn=true"
                             )
+                            # Reset tool usage tracking when agent loop ends
+                            tool_context.reset_tool_tracking()
                             break  # Break from outer agent while loop
 
                     else:

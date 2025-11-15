@@ -30,6 +30,8 @@ class ToolContext:
         self.metadata: dict[str, Any] = {}
         self.current_viz_id: str = None
         self.end_turn: bool = False  # Default: tools do NOT end the agent's turn
+        self.consecutive_tool_count: int = 0
+        self.last_tool_used: str | None = None
 
     def add_base64_image(self, base64_data: str, description: str = ""):
         """
@@ -97,6 +99,38 @@ class ToolContext:
     def clear_end_turn(self):
         """Reset the end_turn flag to its default value (False)."""
         self.end_turn = False
+
+    def track_tool_usage(self, tool_name: str) -> int:
+        """
+        Track consecutive usage of a tool and return the current count.
+
+        If a different tool is used, the counter resets to 1.
+        If the same tool is used again, the counter increments.
+
+        Args:
+            tool_name: Name of the tool being executed
+
+        Returns:
+            int: Current consecutive usage count for this tool
+        """
+        if self.last_tool_used != tool_name:
+            # Different tool - reset counter
+            self.consecutive_tool_count = 1
+            self.last_tool_used = tool_name
+        else:
+            # Same tool - increment counter
+            self.consecutive_tool_count += 1
+
+        return self.consecutive_tool_count
+
+    def reset_tool_tracking(self):
+        """Reset tool usage tracking (called when user provides input or turn ends)."""
+        self.consecutive_tool_count = 0
+        self.last_tool_used = None
+
+    def get_consecutive_count(self) -> int:
+        """Get the current consecutive tool usage count."""
+        return self.consecutive_tool_count
 
 # Global instance
 tool_context = ToolContext()

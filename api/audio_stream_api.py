@@ -6,16 +6,15 @@ handles VAD (Voice Activity Detection) and transcription, matching
 CLI voice input behavior.
 """
 
-import asyncio
 import logging
-import numpy as np
-from typing import Any, Optional
-import queue
 import time
+from typing import Any, Optional
+
+import numpy as np
 
 try:
-    from aiohttp import web
     import aiohttp
+    from aiohttp import web
     AIOHTTP_AVAILABLE = True
 except ImportError:
     web = None
@@ -154,7 +153,10 @@ async def websocket_audio_stream(request: Any) -> Any:
                         logger.debug(f"Transcribing {len(complete_audio)} samples")
 
                         try:
-                            from shared.utils_audio import transcribe_audio, initialize_faster_whisper_model
+                            from shared.utils_audio import (
+                                initialize_faster_whisper_model,
+                                transcribe_audio,
+                            )
 
                             # Initialize Faster-Whisper if not already done
                             initialize_faster_whisper_model("small")

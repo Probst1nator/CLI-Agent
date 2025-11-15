@@ -2,11 +2,9 @@
 """
 This file implements the 'help' tool. It provides help documentation for all available tools.
 """
-import os
-import re
-import sys
 import importlib
-from typing import Dict, List, Optional
+import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -52,7 +50,7 @@ class help:
         }
 
     @staticmethod
-    def _discover_tools() -> Dict[str, object]:
+    def _discover_tools() -> dict[str, object]:
         """
         Discover all available tools in the tools directory.
 
@@ -101,7 +99,7 @@ class help:
         return tools
 
     @staticmethod
-    def _format_tool_list(tools: Dict[str, object]) -> str:
+    def _format_tool_list(tools: dict[str, object]) -> str:
         """
         Format a list of all available tools.
 
@@ -146,7 +144,7 @@ class help:
             except Exception as e:
                 logger.warning(f"Failed to get info for tool {tool_name}: {e}")
                 lines.append(f"📦 {tool_name.upper()}")
-                lines.append(f"   Error retrieving tool information")
+                lines.append("   Error retrieving tool information")
                 lines.append("")
 
         lines.append("─" * 80)

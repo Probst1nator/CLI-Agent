@@ -9,7 +9,6 @@ import json
 import os
 import re
 
-
 # Tool classifications for auto-allow policies
 READ_ONLY_FILE_TOOLS = {
     'readfile',       # Read file contents (text, PDF, images, Office docs, etc.)

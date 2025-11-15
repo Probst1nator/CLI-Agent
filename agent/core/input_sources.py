@@ -734,6 +734,7 @@ class VoiceInputSource(InputSource_ABC):
                 if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
                     # Import and call broadcast function asynchronously
                     import asyncio
+
                     from api.server import broadcast_voice_transcription
 
                     # Try to run in existing event loop, or create new one if needed
