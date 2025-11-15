@@ -2038,6 +2038,9 @@ class VisualResponseApp {
                     try {
                         window.logDebug('🎤 Starting continuous audio streaming...');
 
+                        // Initialize notification audio (must be during user gesture)
+                        this.audioManager.initNotificationAudio();
+
                         // Start streaming with transcription callback
                         await this.audioManager.startAudioStreaming((text, language) => {
                             console.log('[VoiceButton] Transcription received via streaming:', text);
@@ -2053,16 +2056,17 @@ class VisualResponseApp {
                                     this.autoSendTimer = null;
                                 }
 
-                                // Show success feedback
-                                if (typeof showToast === 'function') {
-                                    showToast('🎤 Transcription ready - review and press Enter to send', 'success');
-                                }
-
                                 window.logDebug('✓ Transcription populated in input field');
 
                                 // Start auto-send timer if toggle is enabled
                                 if (this.autoSendToggle && this.autoSendToggle.checked) {
                                     console.log('[AutoSend] Starting 3-second auto-send timer...');
+
+                                    // Show auto-send countdown feedback
+                                    if (typeof showToast === 'function') {
+                                        showToast('🎤 Auto-sending in 3 seconds... (click input to cancel)', 'info');
+                                    }
+
                                     this.autoSendTimer = setTimeout(() => {
                                         console.log('[AutoSend] Timer expired - auto-sending message');
                                         if (this.chatInput.value.trim()) {
@@ -2074,6 +2078,11 @@ class VisualResponseApp {
                                         }
                                         this.autoSendTimer = null;
                                     }, 3000);
+                                } else {
+                                    // Show manual send feedback when auto-send is off
+                                    if (typeof showToast === 'function') {
+                                        showToast('🎤 Transcription ready - press Enter to send', 'success');
+                                    }
                                 }
                             }
                         });

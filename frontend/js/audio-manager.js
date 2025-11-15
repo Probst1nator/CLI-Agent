@@ -1288,10 +1288,39 @@ class AudioManager {
      * @param {string} type - Notification type: 'listening' (ascending tone) or 'processing' (descending tone)
      * @returns {void}
      */
+    /**
+     * Initialize audio context for notification sounds.
+     * Must be called during user gesture to satisfy browser autoplay policies.
+     */
+    initNotificationAudio() {
+        try {
+            if (!this.notificationAudioContext) {
+                this.notificationAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                console.log('[AudioManager] Notification audio context initialized');
+            }
+            // Resume if suspended (browser autoplay policy)
+            if (this.notificationAudioContext.state === 'suspended') {
+                this.notificationAudioContext.resume();
+            }
+        } catch (error) {
+            console.error('[AudioManager] Failed to initialize notification audio:', error);
+        }
+    }
+
     playNotificationSound(type = 'listening') {
         try {
-            // Create audio context if needed
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            // Ensure audio context is initialized
+            if (!this.notificationAudioContext) {
+                console.warn('[AudioManager] Audio context not initialized - call initNotificationAudio() first');
+                return;
+            }
+
+            // Resume if suspended (browser autoplay policy)
+            if (this.notificationAudioContext.state === 'suspended') {
+                this.notificationAudioContext.resume();
+            }
+
+            const audioContext = this.notificationAudioContext;
 
             // Create oscillator for tone generation
             const oscillator = audioContext.createOscillator();
@@ -1319,11 +1348,6 @@ class AudioManager {
             // Play the tone
             oscillator.start(audioContext.currentTime);
             oscillator.stop(audioContext.currentTime + 0.2);
-
-            // Clean up after playback
-            oscillator.onended = () => {
-                audioContext.close();
-            };
 
             console.log(`[AudioManager] Played ${type} notification sound`);
 
