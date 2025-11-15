@@ -1482,9 +1482,12 @@ RELATED: <help>readfile</help> <help>writefile</help> <help>bash</help>
                         r"<content>(.*?)</content>", content, re.IGNORECASE | re.DOTALL
                     )
                     if content_match:
+                        import html
                         markdown_text = content_match.group(1).strip()
+                        # Decode HTML entities first
+                        markdown_text = html.unescape(markdown_text)
                         # Remove CDATA wrapper if present
-                        if markdown_text.startswith("<![CDATA["):
+                        if markdown_text.startswith("<![CDATA[") and markdown_text.endswith("]]>"):
                             markdown_text = markdown_text[9:-3].strip()
                         # Remove markdown formatting
                         markdown_text = re.sub(r"[#*_`]", "", markdown_text)
@@ -1526,8 +1529,17 @@ RELATED: <help>readfile</help> <help>writefile</help> <help>bash</help>
             if content_match:
                 # Strip CDATA wrapper if present, then strip whitespace
                 c = content_match.group(1)
-                if c.strip().startswith("<![CDATA["):
-                    c = c.strip()[9:-3]  # Remove <![CDATA[ and ]]>
+
+                # Decode HTML entities first (in case CDATA tags were encoded)
+                import html
+                c = html.unescape(c)
+
+                # Now check for and remove CDATA wrapper
+                c_stripped = c.strip()
+                if c_stripped.startswith("<![CDATA[") and c_stripped.endswith("]]>"):
+                    # Remove CDATA wrapper: first 9 chars and last 3 chars
+                    c = c_stripped[9:-3]
+
                 args["content"] = c.strip()
 
             # Always default to 'create' action
