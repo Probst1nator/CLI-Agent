@@ -152,6 +152,12 @@ async def websocket_audio_stream(request: Any) -> Any:
                         # Silence detected, transcribe
                         logger.debug(f"Transcribing {len(complete_audio)} samples")
 
+                        # Notify frontend that processing has started
+                        await ws.send_json({
+                            "type": "processing",
+                            "message": "Transcribing audio..."
+                        })
+
                         try:
                             from shared.utils_audio import (
                                 initialize_faster_whisper_model,

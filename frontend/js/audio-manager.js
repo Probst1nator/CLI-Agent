@@ -370,6 +370,10 @@ class AudioManager {
 
                     this.isStreaming = true;
                     console.log('[AudioManager] Audio streaming started');
+
+                    // Play listening notification sound
+                    this.playNotificationSound('listening');
+
                     this.showStatus('Listening...', 'info');
 
                 } catch (error) {
@@ -384,7 +388,12 @@ class AudioManager {
                     const data = JSON.parse(event.data);
                     console.log('[AudioManager] Received from backend:', data);
 
-                    if (data.type === 'transcription') {
+                    if (data.type === 'processing') {
+                        // Backend detected silence and is starting transcription
+                        console.log('[AudioManager] Processing started');
+                        this.playNotificationSound('processing');
+                        this.showStatus('Processing...', 'info');
+                    } else if (data.type === 'transcription') {
                         if (data.text && data.text.trim()) {
                             console.log('[AudioManager] Transcription received:', data.text);
                             if (this.onStreamTranscription) {
@@ -393,6 +402,9 @@ class AudioManager {
                         } else if (data.error) {
                             console.warn('[AudioManager] Backend error:', data.error);
                         }
+
+                        // Restore listening status after transcription
+                        this.showStatus('Listening...', 'info');
                     } else if (data.type === 'error') {
                         console.error('[AudioManager] Backend error:', data.error);
                         this.showError(data.error);
@@ -1265,6 +1277,60 @@ class AudioManager {
      */
     getVolume() {
         return this.volume * 100;
+    }
+
+    /**
+     * Play a notification sound
+     *
+     * Generates a simple tone using Web Audio API for user feedback.
+     * Uses different frequencies for different notification types.
+     *
+     * @param {string} type - Notification type: 'listening' (ascending tone) or 'processing' (descending tone)
+     * @returns {void}
+     */
+    playNotificationSound(type = 'listening') {
+        try {
+            // Create audio context if needed
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // Create oscillator for tone generation
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            // Connect nodes
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            // Configure sound based on type
+            if (type === 'listening') {
+                // Ascending two-tone chime for "listening" state
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+            } else if (type === 'processing') {
+                // Descending two-tone chime for "processing" state
+                oscillator.frequency.setValueAtTime(1000, audioContext.currentTime);
+                oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+            }
+
+            // Play the tone
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+
+            // Clean up after playback
+            oscillator.onended = () => {
+                audioContext.close();
+            };
+
+            console.log(`[AudioManager] Played ${type} notification sound`);
+
+        } catch (error) {
+            console.error('[AudioManager] Failed to play notification sound:', error);
+            // Non-critical error - don't throw
+        }
     }
 }
 
