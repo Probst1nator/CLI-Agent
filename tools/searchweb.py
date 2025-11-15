@@ -34,8 +34,10 @@ from shared.utils.search.search_vector_db import SearchResultsVectorDB
 class searchweb:
     """
     A tool to perform a web search with different content types.
+    Maintains a persistent knowledge base of all searches with smart freshness checking.
     """
     MAX_RESULTS = 10
+    DEFAULT_FRESHNESS_HOURS = 12  # Prefer fresh API results if cached results are older than this
 
     # Initialize vector database for caching and semantic search
     _vector_db = None
@@ -59,16 +61,117 @@ class searchweb:
             "name": "searchweb",
             "description": (
                 f"Performs a web search using a specified query and type. "
-                f"Requires <query> and an optional <type> tag. Supported types are 'text' (default), "
-                f"'images', 'files', and 'any'. Returns up to {searchweb.MAX_RESULTS} results. "
-                f"Disable the locally cached results for time-sensitive queries via <cache>false</cache>."
+                f"Supported types: 'text' (default), 'images', 'files', 'any'. "
+                f"Returns up to {searchweb.MAX_RESULTS} results. "
+                f"Maintains a persistent knowledge base with smart freshness checking. "
+                f"Use <help>searchweb</help> for advanced options."
             ),
             "example": (
-                "<searchweb><query>How to use curl</query><type>text</type></searchweb>\n"
-                "<searchweb><query>golden retriever puppy</query><type>images</type></searchweb>\n"
-                "<searchweb><query>latest Mathematical discoveries</query><type>text</type><cache>false</cache></searchweb>"
+                "<searchweb><query>How to use curl</query></searchweb>\n"
+                "<searchweb><query>golden retriever puppy</query><type>images</type></searchweb>"
             )
         }
+
+    @staticmethod
+    def get_detailed_tool_info() -> str:
+        """Provides comprehensive help documentation for this tool."""
+        return f"""SEARCHWEB - EXTENDED HELP
+
+USAGE:
+  <searchweb><query>search terms</query><type>text</type></searchweb>
+
+PURPOSE:
+  Performs web searches using Brave Search API with intelligent caching and persistent knowledge base.
+  All searches are permanently stored with timestamps for future retrieval and analysis.
+
+PARAMETERS:
+  <query> - Search query (required)
+  <type> - Search type (optional, default "text")
+  <freshness_hours> - Cache freshness threshold in hours (optional, default {searchweb.DEFAULT_FRESHNESS_HOURS})
+
+SEARCH TYPES:
+  text (default) - Web search with LLM-generated summary
+  images - Image search with direct URLs and thumbnails
+  files - File search targeting PDF, DOC, TXT formats
+  any - General web results with structured citations
+
+PERSISTENT KNOWLEDGE BASE:
+  • All search results stored permanently in local vector database
+  • Builds searchable knowledge base over time (never expires)
+  • Each result includes timestamp: "Source: URL | Title: ... | Accessed: YYYY-MM-DD HH:MM:SS"
+  • Agent can see dates and judge if information is current enough
+
+FRESHNESS THRESHOLD (Default: {searchweb.DEFAULT_FRESHNESS_HOURS} hours):
+  • Cached results older than threshold trigger fresh API fetch
+  • Fresh results combined with relevant cached results for comprehensive coverage
+  • Newer cached results (within threshold) used without API call
+  • Override threshold: <freshness_hours>24</freshness_hours>
+
+EXAMPLES:
+  Basic search:
+    <searchweb><query>Python async best practices</query></searchweb>
+
+  Image search:
+    <searchweb><query>sunset photography</query><type>images</type></searchweb>
+
+  Time-sensitive (short freshness window):
+    <searchweb><query>Bitcoin price analysis</query><freshness_hours>1</freshness_hours></searchweb>
+
+  Long freshness window (more caching):
+    <searchweb><query>Python documentation</query><freshness_hours>168</freshness_hours></searchweb>
+
+  Maximum results:
+    <searchweb><query>machine learning tutorials</query><max_results>15</max_results></searchweb>
+
+INTELLIGENT CACHING:
+  • Hybrid search: Vector similarity (semantic) + BM25 (keyword)
+  • Reciprocal Rank Fusion combines both ranking methods
+  • Distance threshold ≤ 0.5 for semantic matching
+  • Fresh results automatically prioritized in ranking
+  • Duplicate URLs filtered across cached + fresh results
+
+RESULT COMPOSITION:
+  • Always checks cache first for relevant results
+  • If cached results < MAX_RESULTS OR too old → API call
+  • Combines fresh + cached results, sorted by relevance and freshness
+  • Final set limited to MAX_RESULTS ({searchweb.MAX_RESULTS} default)
+
+TEXT SEARCH SUMMARIES:
+  • LLM generates concise summary from top results
+  • Summaries cached to avoid regeneration
+  • Full search results saved to memory file if substantial (>1000 chars)
+  • Memory file path provided for detailed exploration
+
+WORKFLOW EXAMPLES:
+  Quick search:
+    <searchweb><query>React hooks tutorial</query></searchweb>
+
+  Refine search:
+    <searchweb><query>React useEffect cleanup pattern</query></searchweb>
+
+  Breaking news (1-hour freshness):
+    <searchweb><query>latest tech announcements</query><freshness_hours>1</freshness_hours></searchweb>
+
+  Documentation (7-day freshness):
+    <searchweb><query>TypeScript generics guide</query><freshness_hours>168</freshness_hours></searchweb>
+
+ADVANCED TIPS:
+  • Set freshness_hours=0 to force fresh API results only (ignores old cache)
+  • Set freshness_hours=999999 to prefer cache even if very old
+  • Agent can read timestamps in results to assess information currency
+  • Knowledge base grows with every search, improving future searches
+  • Semantic search finds conceptually similar past searches
+
+FRESHNESS GUIDELINES:
+  • News/prices/events: 1-6 hours
+  • Technical trends: 24-72 hours
+  • Documentation: 168+ hours (1 week)
+  • Historical info: 999999 hours (always use cache)
+
+RELATED TOOLS:
+  <help>help</help> - List all available tools
+  <readfile> - Read memory files containing full search results
+"""
 
     @staticmethod
     def _remove_tool_calls(text: str) -> str:
@@ -89,22 +192,19 @@ class searchweb:
         return ""
 
     @staticmethod
-    async def _format_text_summary(results: list[dict], query: str, use_cache: bool = True) -> str:
+    async def _format_text_summary(results: list[dict], query: str) -> str:
         """ The original functionality: returns a single condensed string. """
         if not results:
             return "No web search results found."
 
-        # Check for existing summary to avoid duplicates (only if caching enabled)
-        if use_cache:
-            vector_db = searchweb._get_vector_db()
-            existing_summary = vector_db.get_summary_by_query(query, 'text')
-            if existing_summary:
-                print("✅ Using cached LLM summary (skipping generation)")
-                return f"Web search summary: {existing_summary}"
-            else:
-                print("🤖 No cached summary found, generating new LLM summary")
+        # Check for existing summary to avoid duplicates
+        vector_db = searchweb._get_vector_db()
+        existing_summary = vector_db.get_summary_by_query(query, 'text')
+        if existing_summary:
+            print("✅ Using cached LLM summary (skipping generation)")
+            return f"Web search summary: {existing_summary}"
         else:
-            print("🤖 Cache disabled: generating fresh LLM summary")
+            print("🤖 No cached summary found, generating new LLM summary")
 
 
         sourced_snippets = []
@@ -124,34 +224,33 @@ class searchweb:
         # Use await for async LLM completion (force_preferred_model=False to allow any free model)
         summary = await LlmRouter.generate_completion(chat, force_preferred_model=False)
 
-        # Store the generated summary in the vector database with enhanced metadata (only if caching enabled)
-        if use_cache:
-            try:
-                vector_db = searchweb._get_vector_db()
+        # Store the generated summary in the vector database with enhanced metadata
+        try:
+            vector_db = searchweb._get_vector_db()
 
-                # Collect source IDs for audit trail
-                source_ids = []
-                for result in results:
-                    # Create the same content hash as used in store_search_results
-                    title = result.get('title', '')
-                    description = result.get('description', '')
-                    snippets = result.get('extra_snippets', [])
-                    snippet_text = ' '.join(snippets) if snippets else ''
-                    content = f"{title} {description} {snippet_text}".strip()
-                    if content:
-                        content_hash = vector_db._create_content_hash(content)
-                        source_ids.append(f"result_{content_hash}")
+            # Collect source IDs for audit trail
+            source_ids = []
+            for result in results:
+                # Create the same content hash as used in store_search_results
+                title = result.get('title', '')
+                description = result.get('description', '')
+                snippets = result.get('extra_snippets', [])
+                snippet_text = ' '.join(snippets) if snippets else ''
+                content = f"{title} {description} {snippet_text}".strip()
+                if content:
+                    content_hash = vector_db._create_content_hash(content)
+                    source_ids.append(f"result_{content_hash}")
 
-                # Prepare generation info with actual model used
-                generation_info = {
-                    'method': 'llm',
-                    'model': LlmRouter.get_last_used_model()
-                }
+            # Prepare generation info with actual model used
+            generation_info = {
+                'method': 'llm',
+                'model': LlmRouter.get_last_used_model()
+            }
 
-                if vector_db.store_summary(query, 'text', summary, source_ids, generation_info):
-                    print(f"💾 Stored LLM summary in vector database (linked to {len(source_ids)} source documents)")
-            except Exception as e:
-                print(f"⚠️ Failed to store summary in vector database: {e}")
+            if vector_db.store_summary(query, 'text', summary, source_ids, generation_info):
+                print(f"💾 Stored LLM summary in vector database (linked to {len(source_ids)} source documents)")
+        except Exception as e:
+            print(f"⚠️ Failed to store summary in vector database: {e}")
 
         # Save full search results to memory file for detailed reference
         memory_file_path = None
@@ -230,7 +329,8 @@ class searchweb:
         try:
             query_match = re.search(r'<query>(.*?)</query>', content, re.DOTALL)
             type_match = re.search(r'<type>(.*?)</type>', content, re.DOTALL)
-            cache_match = re.search(r'<cache>(.*?)</cache>', content, re.DOTALL)
+            freshness_match = re.search(r'<freshness_hours>(.*?)</freshness_hours>', content, re.DOTALL)
+            max_results_match = re.search(r'<max_results>(.*?)</max_results>', content, re.DOTALL)
 
             if not query_match:
                 # Fallback for old format
@@ -240,11 +340,23 @@ class searchweb:
                 query = query_match.group(1).strip()
                 search_type = type_match.group(1).strip().lower() if type_match else 'text'
 
-            # Parse cache flag (default: true)
-            use_cache = True
-            if cache_match and cache_match.group(1).strip().lower() == 'false':
-                use_cache = False
-                print("⚠️ Caching is explicitly disabled for this query.")
+            # Parse freshness threshold (default: 12 hours)
+            freshness_hours = searchweb.DEFAULT_FRESHNESS_HOURS
+            if freshness_match:
+                try:
+                    freshness_hours = float(freshness_match.group(1).strip())
+                    print(f"🕐 Using custom freshness threshold: {freshness_hours} hours")
+                except ValueError:
+                    print(f"⚠️ Invalid freshness_hours value, using default: {searchweb.DEFAULT_FRESHNESS_HOURS} hours")
+
+            # Parse max_results (default: MAX_RESULTS, capped at 20)
+            max_results = searchweb.MAX_RESULTS
+            if max_results_match:
+                try:
+                    max_results = min(int(max_results_match.group(1).strip()), 20)
+                    print(f"📊 Requesting {max_results} results (capped at 20)")
+                except ValueError:
+                    print(f"⚠️ Invalid max_results value, using default: {searchweb.MAX_RESULTS}")
 
             if not query:
                 return "Error: No search query provided in the <query> tag."
@@ -257,37 +369,65 @@ class searchweb:
             results_list = []
             need_brave_api = True
 
-            # Only search cache if caching is enabled
-            if use_cache:
-                # Search in vector database for similar results (using distance threshold)
-                cached_results_with_distances = vector_db.search_similar_results(query, search_type, searchweb.MAX_RESULTS, 0.5)
+            # Search in vector database for similar results (using distance threshold)
+            cached_results_with_distances = vector_db.search_similar_results(query, search_type, max_results, 0.5)
 
-                if cached_results_with_distances:
-                    # Calculate distance details (lower = better)
-                    distances = [distance for _, distance in cached_results_with_distances]
-                    avg_distance = sum(distances) / len(distances)
-                    min_distance = min(distances)  # Best match
-                    max_distance = max(distances)  # Worst match
+            if cached_results_with_distances:
+                # Filter by freshness threshold
+                from datetime import datetime, timezone, timedelta
+                freshness_cutoff = datetime.now(timezone.utc) - timedelta(hours=freshness_hours)
 
-                    print(f"📊 Found {len(cached_results_with_distances)} cached results (distance ≤ 0.5)")
-                    print(f"   └─ Distance scores: avg={avg_distance:.3f}, best={min_distance:.3f}, worst={max_distance:.3f}")
+                fresh_cached = []
+                stale_cached = []
 
-                    # Add cached results with their distance scores (all are already below threshold)
-                    for metadata, distance in cached_results_with_distances:
-                        metadata['is_cached'] = True
-                        metadata['similarity_score'] = 1 - distance  # Convert to similarity for compatibility
-                        results_list.append(metadata)
+                for metadata, distance in cached_results_with_distances:
+                    # Parse timestamp from metadata
+                    timestamp_str = metadata.get('timestamp', '')
+                    try:
+                        if timestamp_str:
+                            # Handle both ISO format and numeric timestamp
+                            if isinstance(timestamp_str, str):
+                                result_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                            else:
+                                result_time = datetime.fromtimestamp(timestamp_str, tz=timezone.utc)
 
-                    # Skip API call if we have enough high-quality cached results
-                    if len(cached_results_with_distances) >= searchweb.MAX_RESULTS:
-                        need_brave_api = False
-                        print(f"✅ Using {len(cached_results_with_distances)} cached results only (no API call needed)")
-                    else:
-                        print(f"🔄 Using {len(cached_results_with_distances)} cached + fetching {searchweb.MAX_RESULTS - len(cached_results_with_distances)} more from API")
+                            if result_time >= freshness_cutoff:
+                                fresh_cached.append((metadata, distance))
+                            else:
+                                stale_cached.append((metadata, distance))
+                        else:
+                            # No timestamp, treat as stale
+                            stale_cached.append((metadata, distance))
+                    except (ValueError, TypeError):
+                        # Invalid timestamp, treat as stale
+                        stale_cached.append((metadata, distance))
+
+                # Calculate distance details (lower = better)
+                distances = [distance for _, distance in cached_results_with_distances]
+                avg_distance = sum(distances) / len(distances)
+                min_distance = min(distances)  # Best match
+                max_distance = max(distances)  # Worst match
+
+                print(f"📊 Found {len(cached_results_with_distances)} cached results (distance ≤ 0.5)")
+                print(f"   └─ Distance scores: avg={avg_distance:.3f}, best={min_distance:.3f}, worst={max_distance:.3f}")
+                print(f"   └─ Freshness: {len(fresh_cached)} within {freshness_hours}h, {len(stale_cached)} older")
+
+                # Add fresh cached results to results list
+                for metadata, distance in fresh_cached:
+                    metadata['is_cached'] = True
+                    metadata['similarity_score'] = 1 - distance  # Convert to similarity for compatibility
+                    results_list.append(metadata)
+
+                # Skip API call only if we have enough fresh cached results
+                if len(fresh_cached) >= max_results:
+                    need_brave_api = False
+                    print(f"✅ Using {len(fresh_cached)} fresh cached results only (no API call needed)")
+                elif len(fresh_cached) > 0:
+                    print(f"🔄 Using {len(fresh_cached)} fresh cached + fetching more from API")
                 else:
-                    print("📊 No cached results found with distance ≤ 0.5")
+                    print(f"⏰ All {len(stale_cached)} cached results are stale (>{freshness_hours}h old), fetching fresh from API")
             else:
-                print("🚫 Cache disabled: bypassing all cached results")
+                print("📊 No cached results found with distance ≤ 0.5")
 
             # If we need more results or have no cached results, call Brave API
             if need_brave_api:
@@ -330,11 +470,9 @@ class searchweb:
                         if brave_results:
                             print(f"🌐 Retrieved {len(brave_results)} fresh results from Brave API")
 
-                            # Store new results in vector database for future searches (only if caching enabled)
-                            if use_cache and vector_db.store_search_results(query, search_type, brave_results, api_endpoint):
+                            # Store new results in vector database for future searches
+                            if vector_db.store_search_results(query, search_type, brave_results, api_endpoint):
                                 print("💾 Stored new results in vector database for future use")
-                            elif not use_cache:
-                                print("🚫 Not storing results (cache disabled)")
 
                             # Combine cached and fresh results, avoiding duplicates
                             seen_urls = {result.get('url', '') for result in results_list}
@@ -390,70 +528,66 @@ class searchweb:
             print(f"🎯 Final result set: {len(results_list)} total ({fresh_count} fresh + {cached_count} cached)")
 
             if search_type == 'text':
-                return await searchweb._format_text_summary(results_list, query, use_cache)
+                return await searchweb._format_text_summary(results_list, query)
             elif search_type == 'images':
-                # Check for existing image summary to avoid duplicates (only if caching enabled)
-                if use_cache:
-                    existing_summary = vector_db.get_summary_by_query(query, search_type)
-                    if existing_summary:
-                        print("✅ Found and using existing image summary from vector database")
-                        return existing_summary
+                # Check for existing image summary to avoid duplicates
+                existing_summary = vector_db.get_summary_by_query(query, search_type)
+                if existing_summary:
+                    print("✅ Found and using existing image summary from vector database")
+                    return existing_summary
 
                 result = searchweb._format_image_results(results_list)
-                # Store image list summary in vector database with enhanced metadata (only if caching enabled)
-                if use_cache:
-                    try:
-                        # Collect source IDs for audit trail
-                        source_ids = []
-                        for res in results_list:
-                            title = res.get('title', '')
-                            description = res.get('description', '')
-                            content = f"{title} {description}".strip()
-                            if content:
-                                content_hash = vector_db._create_content_hash(content)
-                                source_ids.append(f"result_{content_hash}")
+                # Store image list summary in vector database with enhanced metadata
+                try:
+                    # Collect source IDs for audit trail
+                    source_ids = []
+                    for res in results_list:
+                        title = res.get('title', '')
+                        description = res.get('description', '')
+                        content = f"{title} {description}".strip()
+                        if content:
+                            content_hash = vector_db._create_content_hash(content)
+                            source_ids.append(f"result_{content_hash}")
 
-                        generation_info = {
-                            'method': 'image_list',
-                            'model': 'N/A'  # Image lists are formatted, not generated by LLM
-                        }
+                    generation_info = {
+                        'method': 'image_list',
+                        'model': 'N/A'  # Image lists are formatted, not generated by LLM
+                    }
 
-                        if vector_db.store_summary(query, search_type, result, source_ids, generation_info):
-                            print("💾 Stored image list summary in vector database")
-                    except Exception as e:
-                        print(f"⚠️ Failed to store image summary in vector database: {e}")
+                    if vector_db.store_summary(query, search_type, result, source_ids, generation_info):
+                        print("💾 Stored image list summary in vector database")
+                except Exception as e:
+                    print(f"⚠️ Failed to store image summary in vector database: {e}")
                 return result
             elif search_type in ['files', 'any']:
-                # Check for existing summary to avoid duplicates (only if caching enabled)
-                if use_cache:
-                    existing_summary = vector_db.get_summary_by_query(query, search_type)
-                    if existing_summary:
-                        print("✅ Found and using existing summary from vector database")
-                        return existing_summary
+                # Check for existing summary to avoid duplicates
+                existing_summary = vector_db.get_summary_by_query(query, search_type)
+                if existing_summary:
+                    print("✅ Found and using existing summary from vector database")
+                    return existing_summary
 
                 result = searchweb._format_cited_text(results_list)
-                # Store summary in vector database with enhanced metadata (only if caching enabled)
-                if use_cache:
-                    try:
-                        # Collect source IDs for audit trail
-                        source_ids = []
-                        for res in results_list:
-                            title = res.get('title', '')
-                            description = res.get('description', '')
-                            content = f"{title} {description}".strip()
-                            if content:
-                                content_hash = vector_db._create_content_hash(content)
-                                source_ids.append(f"result_{content_hash}")
+                # Store summary in vector database with enhanced metadata
+                try:
+                    # Collect source IDs for audit trail
+                    source_ids = []
+                    for res in results_list:
+                        title = res.get('title', '')
+                        description = res.get('description', '')
+                        content = f"{title} {description}".strip()
+                        if content:
+                            content_hash = vector_db._create_content_hash(content)
+                            source_ids.append(f"result_{content_hash}")
 
-                        generation_info = {
-                            'method': 'structured_list',
-                            'model': 'N/A'  # Structured lists are formatted, not generated by LLM
-                        }
+                    generation_info = {
+                        'method': 'structured_list',
+                        'model': 'N/A'  # Structured lists are formatted, not generated by LLM
+                    }
 
-                        if vector_db.store_summary(query, search_type, result, source_ids, generation_info):
-                            print("💾 Stored summary in vector database")
-                    except Exception as e:
-                        print(f"⚠️ Failed to store summary in vector database: {e}")
+                    if vector_db.store_summary(query, search_type, result, source_ids, generation_info):
+                        print("💾 Stored summary in vector database")
+                except Exception as e:
+                    print(f"⚠️ Failed to store summary in vector database: {e}")
                 return result
             else:
                 return f"Error: Unknown search type '{search_type}'. Use 'text', 'images', 'files', or 'any'."
