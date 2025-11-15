@@ -74,12 +74,22 @@ async def get_llms(request: Any) -> Any:
     try:
         from core.globals import g
         from core.llm import Llm
+        from core.llm_router import LlmRouter
 
         available_llms = Llm.get_available_llms(include_dynamic=True)
+
+        # Get model statuses including failure reasons
+        model_statuses = LlmRouter.get_model_statuses()
 
         llm_data = []
         for llm in available_llms:
             provider_name = llm.provider.__class__.__name__.replace("API", "")
+
+            # Get status info for this model
+            status_info = model_statuses.get(llm.model_key, {
+                'status': 'available',
+                'failure_reason': ''
+            })
 
             model_entry = {
                 "id": llm.model_key,
@@ -89,7 +99,8 @@ async def get_llms(request: Any) -> Any:
                 "capabilities": [str(capability) for capability in llm.capabilities]
                 if llm.capabilities
                 else [],
-                "status": "available",
+                "status": status_info['status'],
+                "failure_reason": status_info['failure_reason'],
             }
             llm_data.append(model_entry)
 
