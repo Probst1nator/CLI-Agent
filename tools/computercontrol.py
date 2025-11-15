@@ -25,8 +25,8 @@ class computercontrol:
     def get_tool_info() -> dict:
         return {
             "name": "computercontrol",
-            "description": "Control computer windows and take screenshots - list windows, screenshot specific windows by title, activate windows",
-            "example": "<computercontrol><action>screenshot</action><window>Firefox</window></computercontrol>"
+            "description": "Control computer windows and take screenshots - list windows, screenshot specific windows by title, activate windows. Optional <format> (png/jpg/bmp, default: png) for screenshots.",
+            "example": "<computercontrol><action>screenshot</action><window>Firefox</window><format>jpg</format></computercontrol>"
         }
 
     @staticmethod

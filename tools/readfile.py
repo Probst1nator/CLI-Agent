@@ -166,13 +166,13 @@ class readfile:
             "name": "readfile",
             "description": (
                 "Read files in multiple formats (text, PDF, images, Office docs, CSV, HTML, archives, SQLite, Jupyter notebooks). "
-                "Supports line ranges for text files. Auto-detects format and handles large files intelligently. "
-                "Use <help>readfile</help> for comprehensive format documentation and advanced options."
+                "Supports line ranges for text files. Optional <encoding> for non-UTF8 files (utf-8, latin-1, ascii, cp1252, etc.). "
+                "Auto-detects format and handles large files intelligently. Use <help>readfile</help> for comprehensive format documentation."
             ),
             "example": (
                 "<readfile>./src/main.py</readfile>\n"
                 "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>\n"
-                "<readfile>./screenshot.png</readfile>"
+                "<readfile><filepath>./legacy.txt</filepath><encoding>latin-1</encoding></readfile>"
             )
         }
 
@@ -1154,15 +1154,18 @@ RELATED: <help>editfile</help> <help>deletelines</help> <help>insertline</help>
             # Check if input is XML format with filepath and lines tags
             filepath_match = re.search(r'<filepath>(.*?)</filepath>', content, re.DOTALL)
             lines_match = re.search(r'<lines>(.*?)</lines>', content, re.DOTALL)
+            encoding_match = re.search(r'<encoding>(.*?)</encoding>', content, re.DOTALL)
 
             if filepath_match:
                 # XML format
                 filepath = filepath_match.group(1).strip()
                 line_spec = lines_match.group(1).strip() if lines_match else None
+                file_encoding = encoding_match.group(1).strip() if encoding_match else 'utf-8'
             else:
                 # Simple format - just filepath
                 filepath = content.strip()
                 line_spec = None
+                file_encoding = 'utf-8'
 
             if not filepath:
                 return "Error: No filepath provided."
@@ -1238,17 +1241,27 @@ RELATED: <help>editfile</help> <help>deletelines</help> <help>insertline</help>
                 html_result = readfile.process_html_file(full_path)
                 return search_message + html_result
 
-            # Attempt to read the file with UTF-8 encoding, replacing errors
+            # Attempt to read the file with specified encoding
             try:
-                with open(full_path, encoding='utf-8', errors='replace') as f:
+                with open(full_path, encoding=file_encoding, errors='replace') as f:
                     file_content = f.read()
-            except Exception:
-                # Fallback for non-UTF-8 files
-                try:
-                    with open(full_path, encoding='latin-1') as f:
-                        file_content = f.read()
-                except Exception as read_error:
-                     return f"Error: Could not read file '{full_path}'. Tried UTF-8 and Latin-1. Reason: {read_error}"
+            except (UnicodeDecodeError, LookupError) as e:
+                # If specified encoding fails, try fallback
+                if file_encoding != 'utf-8':
+                    try:
+                        with open(full_path, encoding='utf-8', errors='replace') as f:
+                            file_content = f.read()
+                    except Exception:
+                        return f"Error: Could not read file with encoding '{file_encoding}' or UTF-8 fallback. Reason: {e}"
+                else:
+                    # UTF-8 failed, try latin-1 as last resort
+                    try:
+                        with open(full_path, encoding='latin-1') as f:
+                            file_content = f.read()
+                    except Exception as read_error:
+                        return f"Error: Could not read file '{full_path}'. Tried UTF-8 and Latin-1. Reason: {read_error}"
+            except Exception as read_error:
+                return f"Error: Could not read file '{full_path}'. Reason: {read_error}"
 
             # Handle line-indexed reading if line_spec is provided
             if line_spec:
