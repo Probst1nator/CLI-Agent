@@ -279,7 +279,8 @@ class Chat:
         :param metadata: Optional metadata dictionary (e.g., tool_info, model used, timestamps).
         :return: The updated Chat instance.
         """
-        if not (content and role):
+        # Allow empty content if metadata is present (e.g., for cognitive tools like todos/think)
+        if not role or (not content and not metadata):
             return self
 
         # Ensure content is a string for consistent merging

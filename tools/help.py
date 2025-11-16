@@ -2,6 +2,7 @@
 """
 This file implements the 'help' tool. It provides help documentation for all available tools.
 """
+
 import importlib
 import os
 import sys
@@ -12,9 +13,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Ensure proper imports when running as module or script
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Add project root to path for direct execution
-    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     if PROJECT_ROOT not in sys.path:
         sys.path.insert(0, PROJECT_ROOT)
 
@@ -30,7 +31,7 @@ class help:
 
     @staticmethod
     def get_delim() -> str:
-        return 'help'
+        return "help"
 
     @staticmethod
     def get_tool_info() -> dict:
@@ -42,11 +43,7 @@ class help:
                 "Use <help>tool_name</help> for detailed help on a specific tool, "
                 "or <help/> to list all available tools."
             ),
-            "example": (
-                "<help>paper_search</help>\n"
-                "<help>bash</help>\n"
-                "<help/>"
-            )
+            "example": ("<help>papersearch</help>\n<help>bash</help>\n<help/>"),
         }
 
     @staticmethod
@@ -63,31 +60,35 @@ class help:
         try:
             for filename in os.listdir(tools_dir):
                 # Skip non-Python files and special files
-                if not filename.endswith('.py') or filename.startswith('_'):
+                if not filename.endswith(".py") or filename.startswith("_"):
                     continue
 
                 tool_name = filename[:-3]  # Remove .py extension
 
                 # Skip the help tool itself
-                if tool_name == 'help':
+                if tool_name == "help":
                     continue
 
                 try:
                     # Import the module
-                    module = importlib.import_module(f'tools.{tool_name}')
+                    module = importlib.import_module(f"tools.{tool_name}")
 
                     # Get the class (should match the filename)
                     if hasattr(module, tool_name):
                         tool_class = getattr(module, tool_name)
 
                         # Verify it has the required methods
-                        if hasattr(tool_class, 'get_delim') and hasattr(tool_class, 'get_tool_info'):
+                        if hasattr(tool_class, "get_delim") and hasattr(
+                            tool_class, "get_tool_info"
+                        ):
                             tools[tool_name] = tool_class
                             logger.debug(f"Discovered tool: {tool_name}")
                         else:
                             logger.warning(f"Tool {tool_name} missing required methods")
                     else:
-                        logger.warning(f"Module {tool_name} does not have class {tool_name}")
+                        logger.warning(
+                            f"Module {tool_name} does not have class {tool_name}"
+                        )
 
                 except Exception as e:
                     logger.warning(f"Failed to import tool {tool_name}: {e}")
@@ -125,17 +126,21 @@ class help:
             "To get detailed help for a specific tool, use: <help>tool_name</help>",
             "",
             "─" * 80,
-            ""
+            "",
         ]
 
         for tool_name, tool_class in sorted_tools:
             try:
                 info = tool_class.get_tool_info()
-                name = info.get('name', tool_name)
-                description = info.get('description', 'No description available')
+                name = info.get("name", tool_name)
+                description = info.get("description", "No description available")
 
                 # Get the delimiter
-                delim = tool_class.get_delim() if hasattr(tool_class, 'get_delim') else tool_name
+                delim = (
+                    tool_class.get_delim()
+                    if hasattr(tool_class, "get_delim")
+                    else tool_name
+                )
 
                 lines.append(f"📦 {name.upper()} (tag: <{delim}>)")
                 lines.append(f"   {description}")
@@ -149,9 +154,11 @@ class help:
 
         lines.append("─" * 80)
         lines.append("")
-        lines.append("Use <help>tool_name</help> for detailed documentation and examples.")
+        lines.append(
+            "Use <help>tool_name</help> for detailed documentation and examples."
+        )
 
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
     @staticmethod
     def _get_detailed_help(tool_name: str, tool_class: object) -> str:
@@ -167,18 +174,22 @@ class help:
         """
         try:
             # Try to get detailed help first
-            if hasattr(tool_class, 'get_detailed_tool_info'):
+            if hasattr(tool_class, "get_detailed_tool_info"):
                 detailed_info = tool_class.get_detailed_tool_info()
                 return detailed_info
 
             # Fallback to basic tool info
             info = tool_class.get_tool_info()
-            name = info.get('name', tool_name)
-            description = info.get('description', 'No description available')
-            example = info.get('example', 'No examples available')
+            name = info.get("name", tool_name)
+            description = info.get("description", "No description available")
+            example = info.get("example", "No examples available")
 
             # Get the delimiter
-            delim = tool_class.get_delim() if hasattr(tool_class, 'get_delim') else tool_name
+            delim = (
+                tool_class.get_delim()
+                if hasattr(tool_class, "get_delim")
+                else tool_name
+            )
 
             # Format basic info nicely
             lines = [
@@ -193,11 +204,11 @@ class help:
                 f"  <{delim}>...</{delim}>",
                 "",
                 "EXAMPLES:",
-                ""
+                "",
             ]
 
             # Add examples
-            for line in example.split('\n'):
+            for line in example.split("\n"):
                 lines.append(f"  {line}")
 
             lines.append("")
@@ -206,7 +217,7 @@ class help:
             lines.append("Note: This tool does not have detailed documentation yet.")
             lines.append(f"For implementation details, see: tools/{tool_name}.py")
 
-            return '\n'.join(lines)
+            return "\n".join(lines)
 
         except Exception as e:
             logger.error(f"Failed to get help for tool {tool_name}: {e}", exc_info=True)
@@ -240,7 +251,7 @@ class help:
 
             # Get detailed help for specific tool
             if tool_name not in tools:
-                available = ', '.join(sorted(tools.keys()))
+                available = ", ".join(sorted(tools.keys()))
                 return (
                     f"Error: Tool '{tool_name}' not found.\n\n"
                     f"Available tools: {available}\n\n"
@@ -256,18 +267,18 @@ class help:
 
 
 # Allow direct execution for testing
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Test listing all tools
     print("=== TESTING TOOL LIST ===")
-    result = help.run('')
+    result = help.run("")
     print(result)
 
     print("\n" + "=" * 80)
     print("=== TESTING SPECIFIC TOOL HELP ===")
-    result = help.run('paper_search')
+    result = help.run("papersearch")
     print(result)
 
     print("\n" + "=" * 80)
     print("=== TESTING INVALID TOOL ===")
-    result = help.run('nonexistent_tool')
+    result = help.run("nonexistent_tool")
     print(result)

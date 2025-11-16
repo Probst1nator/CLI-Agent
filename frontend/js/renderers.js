@@ -1053,6 +1053,9 @@ class ContentRenderer {
                 toolsHeader.className = 'loading-tools-header';
             }
 
+            // Find the last todos tool index (to only update sidebar with final state)
+            const lastTodosIndex = toolInfo.map(t => t.name).lastIndexOf('todos');
+
             toolInfo.forEach((tool, index) => {
                 // Check if tool item already exists (created by StatusDisplay)
                 let toolItem = toolsHeader.querySelector(`[data-tool-name="${tool.name}"]`);
@@ -1071,8 +1074,9 @@ class ContentRenderer {
                 // Apply special styling for think and todos tags
                 if (tool.name === 'todos') {
                     itemClass += ' special-todos';
-                    // Update todos sidebar if available
-                    if (window.todosManager) {
+                    // Only update sidebar for the LAST todos tool (final state)
+                    // This prevents flickering when agent creates multiple todos blocks
+                    if (index === lastTodosIndex && window.todosManager) {
                         window.todosManager.updateTodos(tool.args || '');
                     }
                 } else if (tool.name === 'think') {

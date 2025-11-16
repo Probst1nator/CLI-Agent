@@ -1673,6 +1673,8 @@ def create_interruption_callback(
     painter: TextStreamPainter,
     lock: Optional[asyncio.Lock] = None,
     token_broadcast_callback=None,
+    context_chat=None,
+    args=None,
 ):
     """
     Factory to create a stateful callback for handling LLM streams.
@@ -1688,6 +1690,8 @@ def create_interruption_callback(
         lock: An optional asyncio.Lock for concurrent-safe printing.
         token_broadcast_callback: Optional async callback to emit token_stream events.
             Called with (token, tokens_generated, elapsed_ms).
+        context_chat: Optional Chat instance for adding messages.
+        args: Optional args namespace for GUI/API mode detection.
 
     Returns:
         An async callback function.
@@ -1719,6 +1723,117 @@ def create_interruption_callback(
         if tool_tag_pattern
         else None
     )
+
+    # Build regex for non-interrupting tools (think, todos)
+    non_interrupting_pattern = "|".join(re.escape(tag) for tag in non_interrupting_tags)
+    NON_INTERRUPTING_REGEX = (
+        re.compile(f"<({non_interrupting_pattern})[^>]*>.*?</\\1>", re.DOTALL)
+        if non_interrupting_pattern
+        else None
+    )
+
+    # Track which non-interrupting blocks have been processed to avoid duplicates
+    processed_non_interrupting_blocks = set()
+
+    # Async execution function for non-interrupting tools
+    async def execute_non_interrupting_tool(tool_name: str, full_block: str):
+        """Execute a non-interrupting tool asynchronously without interrupting the stream."""
+        try:
+            logging.debug(f"🔄 Async executing non-interrupting tool: {tool_name}")
+
+            # Extract tool content using extract_blocks
+            blocks = extract_blocks(full_block, [tool_name])
+            if not blocks:
+                logging.debug(f"No blocks found for {tool_name}")
+                return
+
+            # Execute the tool
+            tool_start_time = time.time()
+            tool_status = "success"
+            tool_error = None
+            tool_result = None
+
+            try:
+                # Get the tool class from globals
+                from tools.primitives.think import think
+
+                tool_class = None
+                if tool_name == 'todos':
+                    tool_class = todos
+                elif tool_name == 'think':
+                    tool_class = think
+                else:
+                    logging.warning(f"Unknown non-interrupting tool: {tool_name}")
+                    return
+
+                # Execute the tool
+                first_block = blocks[0]
+                if asyncio.iscoroutinefunction(tool_class.run):
+                    tool_result = await tool_class.run(first_block)
+                else:
+                    tool_result = tool_class.run(first_block)
+
+                # Ensure tool_result is always a string, never a coroutine
+                if asyncio.iscoroutine(tool_result):
+                    logging.error(f"Tool {tool_name} returned unresolved coroutine")
+                    tool_result = await tool_result
+
+                logging.debug(f"✓ Async executed {tool_name} successfully")
+
+            except Exception as e:
+                tool_status = "error"
+                tool_error = str(e)
+                logging.error(f"Error async executing {tool_name}: {e}")
+                tool_result = f"Error executing {tool_name}: {str(e)}"
+
+            # Calculate execution time
+            tool_duration_ms = int((time.time() - tool_start_time) * 1000)
+
+            # Create tool execution metadata matching the format from regular execution
+            tool_info = {
+                "name": tool_name,  # Use "name" not "tool_name" for frontend compatibility
+                "status": tool_status,
+                "duration_ms": tool_duration_ms,
+                "error": tool_error,
+                "args": first_block.strip() if first_block else "",  # The actual tool content!
+                "context_returned": tool_result.strip() if tool_result else "",
+                "context_length": len(str(tool_result)) if tool_result else 0,
+                "timestamp": time.time(),
+            }
+
+            # Add model info
+            try:
+                used_model = (
+                    g.current_llm_model
+                    if hasattr(g, "current_llm_model")
+                    else LlmRouter.get_last_used_model()
+                )
+                tool_info["model"] = used_model
+            except Exception as e:
+                logging.error(f"Could not get model for tool {tool_name}: {e}")
+                tool_info["model"] = "unknown"
+
+            # Broadcast to frontend if in GUI/API mode
+            if context_chat and (args and (args.gui or args.api)):
+                try:
+                    # Add metadata-only message to chat (empty content, just metadata)
+                    metadata = {"tool_info": [tool_info]}
+                    context_chat.add_message(
+                        Role.ASSISTANT,
+                        "",  # Empty content for cognitive tools
+                        metadata=metadata,
+                    )
+
+                    # Broadcast the message to frontend
+                    from api.server import broadcast_message_added
+                    await broadcast_message_added(context_chat.messages[-1])
+                    logging.debug(f"Broadcasted {tool_name} execution to frontend")
+
+                except Exception as e:
+                    logging.debug(f"Failed to broadcast {tool_name} execution: {e}")
+
+        except Exception as e:
+            logging.error(f"Fatal error in async execution of {tool_name}: {e}")
 
     # Repetition detection state (detects when model loops on same 1-5 chars)
     repetition_state = {"pattern": "", "count": 0, "check_pos": 0}
@@ -1871,6 +1986,24 @@ def create_interruption_callback(
                     #     if not g.SUMMARY_MODE:
                     #         print("\n")
                     #     raise StreamInterruptedException(full_block)
+
+                    # Check for complete non-interrupting tool blocks (think, todos)
+                    # Execute them asynchronously without interrupting the stream
+                    if NON_INTERRUPTING_REGEX:
+                        # Use finditer to find ALL non-interrupting blocks, not just the first one
+                        for non_int_match in NON_INTERRUPTING_REGEX.finditer(current_buffer):
+                            full_block = non_int_match.group(0).strip()
+                            tool_name = non_int_match.group(1)
+
+                            # Only process each block once (avoid re-processing)
+                            if full_block not in processed_non_interrupting_blocks:
+                                processed_non_interrupting_blocks.add(full_block)
+
+                                # Execute asynchronously without interrupting the stream
+                                asyncio.create_task(
+                                    execute_non_interrupting_tool(tool_name, full_block)
+                                )
+                                logging.debug(f"🔄 Created async task for {tool_name}")
 
                     # Check for a complete block of a known tool
                     if XML_TOOL_BLOCK_REGEX:
@@ -3075,6 +3208,8 @@ async def main(  # type: ignore[misc]
                         response_buffer_list,
                         text_stream_painter,
                         token_broadcast_callback=token_broadcast_callback,
+                        context_chat=context_chat,
+                        args=args,
                     )
                     current_todo = f"<current_todo>\n{todos().get_next_unchecked_task()}\n</current_todo>"
                     # Simple single model execution
@@ -3431,6 +3566,12 @@ async def main(  # type: ignore[misc]
                         )
                         if has_xml_tag or has_markdown:
                             tool_tags_found.append(tool_class)
+                            if delim == 'todos':
+                                logging.debug(f"🔍 TODOS TOOL DETECTED in response")
+
+                    if 'todos' in [tc.get_delim() for tc in tool_tags_found]:
+                        logging.debug(f"✅ TODOS in tool_tags_found list")
+                        logging.debug(f"📋 Complete tool_tags_found: {[tc.get_delim() for tc in tool_tags_found]}")
 
                     # Store original response for TTS (ALWAYS, not just when tools found)
                     # This ensures TTS works for all responses including visualresponse-only
@@ -3438,6 +3579,7 @@ async def main(  # type: ignore[misc]
 
                     # If any tool tags are found, process them
                     if tool_tags_found:
+                        logging.debug(f"📋 Before permission check - tools: {[tc.get_delim() for tc in tool_tags_found]}")
                         # --- Enhanced Path-Aware Permission Checking ---
                         # Check permissions using path detection for tools with file operations
                         should_execute = False
@@ -3649,7 +3791,9 @@ async def main(  # type: ignore[misc]
 
                                     # decision == "allow" - proceed without prompting
 
+                        logging.debug(f"📋 After permission check - should_execute={should_execute}, tools: {[tc.get_delim() for tc in tool_tags_found]}")
                         if should_execute:
+                            logging.debug(f"🔧 Executing {len(tool_tags_found)} tools: {[tc.get_delim() for tc in tool_tags_found]}")
                             try:
                                 tool_results = []
                                 executed_tools_info = []  # Track tool execution info for visual interface
@@ -3659,6 +3803,8 @@ async def main(  # type: ignore[misc]
                                 should_break_agent_loop = False  # Flag to break outer agent loop after tool execution
                                 for tool_class in tool_tags_found:
                                     tool_name = tool_class.get_delim()
+                                    if tool_name == 'todos':
+                                        logging.debug(f"🎯 About to execute TODOS tool")
                                     blocks = get_extract_blocks()(
                                         assistant_response, [tool_name]
                                     )
@@ -4061,7 +4207,8 @@ Search for keywords:
                                     )
 
                                 # Add tool results to chat - this appends to existing assistant message
-                                if len(returned_context) > 0:
+                                # Also broadcast if we have tool metadata even without context (for cognitive tools like todos/think)
+                                if len(returned_context) > 0 or executed_tools_info:
                                     metadata = {}
                                     if executed_tools_info:
                                         metadata["tool_info"] = executed_tools_info

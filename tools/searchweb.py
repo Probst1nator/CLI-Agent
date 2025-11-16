@@ -26,6 +26,8 @@ if __name__ == '__main__':
     if PROJECT_ROOT not in sys.path:
         sys.path.insert(0, PROJECT_ROOT)
 
+from datetime import UTC
+
 from shared.utils.memory_utils import save_to_memory_file
 from shared.utils.search.brave_search import BraveSearchAPI
 from shared.utils.search.search_vector_db import SearchResultsVectorDB
@@ -374,8 +376,8 @@ RELATED TOOLS:
 
             if cached_results_with_distances:
                 # Filter by freshness threshold
-                from datetime import datetime, timezone, timedelta
-                freshness_cutoff = datetime.now(timezone.utc) - timedelta(hours=freshness_hours)
+                from datetime import datetime, timedelta
+                freshness_cutoff = datetime.now(UTC) - timedelta(hours=freshness_hours)
 
                 fresh_cached = []
                 stale_cached = []
@@ -389,7 +391,7 @@ RELATED TOOLS:
                             if isinstance(timestamp_str, str):
                                 result_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                             else:
-                                result_time = datetime.fromtimestamp(timestamp_str, tz=timezone.utc)
+                                result_time = datetime.fromtimestamp(timestamp_str, tz=UTC)
 
                             if result_time >= freshness_cutoff:
                                 fresh_cached.append((metadata, distance))

@@ -357,32 +357,48 @@ body {
     flex-shrink: 0;
 }
 
-.todos-controls {
+/* Todos button container (button + auto-show toggle) */
+.todos-button-container {
     display: flex;
-    gap: 5px;
-    align-items: center;
+    flex-direction: column;
+    gap: 4px;
+    align-items: stretch;
 }
 
-.todos-auto-show-label {
+/* Auto-show toggle (below todos button) */
+.todos-auto-show-toggle {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     cursor: pointer;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: 10px;
     user-select: none;
+    padding: 2px 6px;
+    justify-content: center;
 }
 
-.todos-auto-show-label input[type='checkbox'] {
+.todos-auto-show-toggle:hover {
+    color: var(--text-color);
+}
+
+.todos-auto-show-toggle input[type='checkbox'] {
     cursor: pointer;
+    margin: 0;
+}
+
+.todos-auto-show-toggle .auto-show-text {
+    font-size: 10px;
+    white-space: nowrap;
 }
 
 .todos-content {
     flex: 1;
     overflow-y: auto;
     padding: 10px;
-    font-size: 13px;
-    line-height: 1.5;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 12px;
+    line-height: 1.4;
     max-height: calc(100vh - 200px);
     height: 100%;
 }
@@ -404,57 +420,47 @@ body {
 }
 
 .todos-empty-text {
-    font-size: 14px;
+    font-size: 12px;
     opacity: 0.7;
 }
 
 .todo-item {
-    padding: 8px 10px;
-    margin-bottom: 8px;
-    background-color: var(--bg-color);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    transition: all 0.2s;
-}
-
-.todo-item:hover {
-    background-color: var(--button-hover-bg);
+    margin-bottom: 2px;
+    word-wrap: break-word;
+    padding: 2px 0;
 }
 
 .todo-status-icon {
-    flex-shrink: 0;
-    font-size: 16px;
-    line-height: 1.5;
-}
-
-.todo-content {
-    flex: 1;
-    min-width: 0;
+    color: #888;
+    margin-right: 8px;
+    display: inline;
 }
 
 .todo-text {
     color: var(--text-color);
-    word-wrap: break-word;
+    display: inline;
 }
 
-.todo-item.completed {
-    opacity: 0.6;
+.todo-item.completed .todo-status-icon {
+    color: #4caf50;
 }
 
 .todo-item.completed .todo-text {
     text-decoration: line-through;
+    opacity: 0.6;
 }
 
-.todo-item.in_progress {
-    border-left: 3px solid var(--primary-color);
-    background-color: rgba(66, 153, 225, 0.1);
+.todo-item.in_progress .todo-status-icon {
+    color: var(--primary-color);
 }
 
-.todo-item.pending {
-    border-left: 3px solid var(--border-color);
+.todo-item.in_progress .todo-text {
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+.todo-item.pending .todo-status-icon {
+    color: #888;
 }
 
 /* Todos Toggle Button */

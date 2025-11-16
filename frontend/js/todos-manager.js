@@ -97,16 +97,33 @@ class TodosManager {
     }
 
     toggleTodos() {
+        // If manually opening the sidebar, disable auto-show
+        // (user is taking manual control)
+        if (!this.todosVisible) {
+            console.log('[TodosManager] Manual open detected, disabling auto-show');
+            this.autoShowEnabled = false;
+
+            // Update checkbox UI
+            const autoShowCheckbox = document.getElementById('todos-auto-show');
+            if (autoShowCheckbox) {
+                autoShowCheckbox.checked = false;
+            }
+        }
+
         this.todosVisible = !this.todosVisible;
         this.updateTodosVisibility();
         this.saveTodosState();
     }
 
     showTodos() {
+        console.log('[TodosManager] showTodos called, current visibility:', this.todosVisible);
         if (!this.todosVisible) {
             this.todosVisible = true;
             this.updateTodosVisibility();
             this.saveTodosState();
+            console.log('[TodosManager] Todos sidebar opened');
+        } else {
+            console.log('[TodosManager] Todos sidebar already visible');
         }
     }
 
@@ -122,14 +139,24 @@ class TodosManager {
         const sidebar = document.getElementById('todos-sidebar');
         const toggleBtn = document.getElementById('todos-toggle-btn');
 
+        console.log('[TodosManager] updateTodosVisibility:', {
+            todosVisible: this.todosVisible,
+            sidebarFound: !!sidebar,
+            toggleBtnFound: !!toggleBtn
+        });
+
         if (sidebar) {
             if (this.todosVisible) {
                 sidebar.classList.remove('hidden');
                 // Apply saved width when showing
                 sidebar.style.width = this.todosWidth + 'px';
+                console.log('[TodosManager] Sidebar shown, width:', this.todosWidth);
             } else {
                 sidebar.classList.add('hidden');
+                console.log('[TodosManager] Sidebar hidden');
             }
+        } else {
+            console.error('[TodosManager] Sidebar element not found!');
         }
 
         if (toggleBtn) {
@@ -138,29 +165,114 @@ class TodosManager {
             } else {
                 toggleBtn.classList.remove('active');
             }
+        } else {
+            console.error('[TodosManager] Toggle button not found!');
         }
     }
 
     /**
      * Parse todos from tool call content
-     * Expects XML format with <todos> tag containing array of todo items
-     * @param {string} content - XML content from todos tool call
+     * Supports both markdown checklist format and JSON format
+     * @param {string} content - Content from todos tool call (markdown or JSON)
      * @returns {Array<{content: string, status: string, activeForm: string}>}
      */
     parseTodos(content) {
         try {
-            // Extract JSON array from content
-            // The content should be a JSON array of todo objects
+            // Try JSON format first
             const jsonMatch = content.match(/\[[\s\S]*\]/);
             if (jsonMatch) {
-                const todos = JSON.parse(jsonMatch[0]);
-                return todos;
+                try {
+                    const todos = JSON.parse(jsonMatch[0]);
+                    if (Array.isArray(todos)) {
+                        return todos;
+                    }
+                } catch (e) {
+                    // Not valid JSON, try markdown format
+                }
             }
-            return [];
+
+            // Parse markdown checklist format: - [ ] or - [x]
+            const lines = content.split('\n');
+            const todos = [];
+            let foundFirstUnchecked = false;
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+
+                // Match markdown checkbox: - [ ] or - [x]
+                const checkboxMatch = trimmed.match(/^-\s*\[([ xX])\]\s*(.+)$/);
+                if (checkboxMatch) {
+                    const isChecked = checkboxMatch[1].toLowerCase() === 'x';
+                    const taskText = checkboxMatch[2].trim();
+
+                    let status = 'pending';
+                    if (isChecked) {
+                        status = 'completed';
+                    } else if (!foundFirstUnchecked) {
+                        // First unchecked item is considered "in_progress"
+                        status = 'in_progress';
+                        foundFirstUnchecked = true;
+                    }
+
+                    // Create activeForm by adding "...ing" context
+                    const activeForm = this.makeActiveForm(taskText);
+
+                    todos.push({
+                        content: taskText,
+                        status: status,
+                        activeForm: activeForm
+                    });
+                }
+            }
+
+            return todos;
         } catch (error) {
             window.logError('Failed to parse todos:', error);
             return [];
         }
+    }
+
+    /**
+     * Convert a task description to its active form
+     * @param {string} text - Task description
+     * @returns {string} Active form of the task
+     */
+    makeActiveForm(text) {
+        // Simple heuristic: if it starts with a verb, try to make it continuous
+        // Otherwise, just return the original text
+        const verbMap = {
+            'List': 'Listing',
+            'Analyze': 'Analyzing',
+            'Create': 'Creating',
+            'Update': 'Updating',
+            'Delete': 'Deleting',
+            'Read': 'Reading',
+            'Write': 'Writing',
+            'Search': 'Searching',
+            'Find': 'Finding',
+            'Fix': 'Fixing',
+            'Test': 'Testing',
+            'Build': 'Building',
+            'Deploy': 'Deploying',
+            'Install': 'Installing',
+            'Configure': 'Configuring',
+            'Review': 'Reviewing',
+            'Add': 'Adding',
+            'Remove': 'Removing',
+            'Check': 'Checking',
+            'Verify': 'Verifying',
+            'Implement': 'Implementing',
+            'Debug': 'Debugging'
+        };
+
+        for (const [verb, active] of Object.entries(verbMap)) {
+            if (text.startsWith(verb + ' ')) {
+                return active + text.substring(verb.length);
+            }
+        }
+
+        // Default: just return the original text
+        return text;
     }
 
     /**
@@ -172,9 +284,22 @@ class TodosManager {
         this.currentTodos = newTodos;
         this.renderTodos();
 
+        // Debug logging for auto-show
+        console.log('[TodosManager] updateTodos called:', {
+            autoShowEnabled: this.autoShowEnabled,
+            todosCount: newTodos.length,
+            todosVisible: this.todosVisible,
+            content: content.substring(0, 100)
+        });
+
         // Auto-show if enabled and there are todos
         if (this.autoShowEnabled && newTodos.length > 0) {
+            console.log('[TodosManager] Auto-showing todos sidebar');
             this.showTodos();
+        } else {
+            console.log('[TodosManager] NOT auto-showing:', {
+                reason: !this.autoShowEnabled ? 'auto-show disabled' : 'no todos'
+            });
         }
     }
 
@@ -217,9 +342,7 @@ class TodosManager {
 
             todoItem.innerHTML = `
                 <span class="todo-status-icon">${icon}</span>
-                <div class="todo-content">
-                    <div class="todo-text">${this.escapeHtml(displayText)}</div>
-                </div>
+                <span class="todo-text">${this.escapeHtml(displayText)}</span>
             `;
 
             content.appendChild(todoItem);

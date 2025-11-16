@@ -1,14 +1,14 @@
-# tools/paper_search.py
+# tools/papersearch.py
 """
-This file implements the 'paper_search' tool. It allows the agent to search
+This file implements the 'papersearch' tool. It allows the agent to search
 for academic papers on arXiv with advanced query syntax and filtering options.
 """
+
 import asyncio
 import os
 import re
 import sys
 from datetime import datetime
-from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -16,9 +16,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Ensure proper imports when running as module or script
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Add project root to path for direct execution
-    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     if PROJECT_ROOT not in sys.path:
         sys.path.insert(0, PROJECT_ROOT)
 
@@ -27,18 +27,19 @@ from shared.utils.tool_logging import get_logger_for_tool_module
 logger = get_logger_for_tool_module(__name__)
 
 
-class paper_search:
+class papersearch:
     """
     A tool to search for academic papers on arXiv with advanced query capabilities.
     Returns paper titles, authors, abstracts, and PDF links.
     """
+
     MAX_RESULTS = 10
 
     # Comprehensive help documentation
     HELP_TEXT = """PAPER_SEARCH - EXTENDED HELP
 
 USAGE:
-  <paper_search><query>machine learning transformers</query><max_results>5</max_results></paper_search>
+  <papersearch><query>machine learning transformers</query><max_results>5</max_results></papersearch>
 
 PURPOSE:
 Search academic papers using arXiv API. Returns title, abstract, authors, year, and PDF links.
@@ -62,10 +63,10 @@ QUERY HANDLING:
   provide more precise control over search results.
 
 EXAMPLES:
-  Basic: <paper_search><query>neural networks</query></paper_search>
-  Filtered: <paper_search><query>transformers</query><category>cs.LG</category><max_results>10</max_results></paper_search>
-  Author: <paper_search><query>deep learning</query><author>Hinton</author></paper_search>
-  Date range: <paper_search><query>attention</query><date_from>2017-01-01</date_from><date_to>2020-12-31</date_to></paper_search>
+  Basic: <papersearch><query>neural networks</query></papersearch>
+  Filtered: <papersearch><query>transformers</query><category>cs.LG</category><max_results>10</max_results></papersearch>
+  Author: <papersearch><query>deep learning</query><author>Hinton</author></papersearch>
+  Date range: <papersearch><query>attention</query><date_from>2017-01-01</date_from><date_to>2020-12-31</date_to></papersearch>
 
 ADVANCED QUERY SYNTAX:
   Field searches:
@@ -117,38 +118,36 @@ RELATED: <help>websearch</help> <help>readfile</help>
 
     @staticmethod
     def get_delim() -> str:
-        return 'paper_search'
+        return "papersearch"
 
     @staticmethod
     def get_tool_info() -> dict:
         """Provides standardized documentation for this tool."""
         return {
-            "name": "paper_search",
+            "name": "papersearch",
             "description": (
                 "Advanced academic paper search on arXiv with field-specific queries, boolean operators, "
                 "and filtering. Supports author, category, date range filtering, and direct ID lookup. "
-                "Use <help>paper_search</help> for comprehensive documentation. "
+                "Use <help>papersearch</help> for comprehensive documentation. "
                 "Basic: <query>search terms</query>. "
                 "Advanced: <query>au:Hinton AND ti:deep</query><category>cs.AI</category><date_from>2023-01-01</date_from>. "
                 "Direct lookup: <arxiv_ids>2103.14030,2010.11929</arxiv_ids>"
             ),
             "example": (
-                "<paper_search><query>quantum computing</query></paper_search>\n"
-                "<paper_search><query>au:Hinton AND ti:deep learning</query><max_results>5</max_results></paper_search>\n"
-                "<paper_search><query>transformer</query><category>cs.LG</category><date_from>2023-01-01</date_from></paper_search>"
-            )
+                "<papersearch><query>quantum computing</query></papersearch>\n"
+                "<papersearch><query>au:Hinton AND ti:deep learning</query><max_results>5</max_results></papersearch>\n"
+                "<papersearch><query>transformer</query><category>cs.LG</category><date_from>2023-01-01</date_from></papersearch>"
+            ),
         }
 
     @staticmethod
     def get_detailed_tool_info() -> str:
         """Provides comprehensive help documentation for this tool."""
-        return paper_search.HELP_TEXT
+        return papersearch.HELP_TEXT
 
     @staticmethod
     def _build_arxiv_query(
-        query: str,
-        author: Optional[str] = None,
-        category: Optional[str] = None
+        query: str, author: str | None = None, category: str | None = None
     ) -> str:
         """
         Build an arXiv query with field prefixes and filters.
@@ -169,24 +168,28 @@ RELATED: <help>websearch</help> <help>readfile</help>
             query_parts.append(query)
 
         # Add author filter if not already in query
-        if author and 'au:' not in query.lower():
+        if author and "au:" not in query.lower():
             query_parts.append(f'au:"{author}"')
 
         # Add category filter if not already in query
-        if category and 'cat:' not in query.lower():
-            query_parts.append(f'cat:{category}')
+        if category and "cat:" not in query.lower():
+            query_parts.append(f"cat:{category}")
 
         # Join with AND operator
-        final_query = ' AND '.join(query_parts) if len(query_parts) > 1 else query_parts[0] if query_parts else ''
+        final_query = (
+            " AND ".join(query_parts)
+            if len(query_parts) > 1
+            else query_parts[0]
+            if query_parts
+            else ""
+        )
 
         logger.debug(f"Built arXiv query: {final_query}")
         return final_query
 
     @staticmethod
     def _filter_by_date_range(
-        papers: list[dict],
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None
+        papers: list[dict], date_from: str | None = None, date_to: str | None = None
     ) -> list[dict]:
         """
         Filter papers by publication date range.
@@ -204,22 +207,22 @@ RELATED: <help>websearch</help> <help>readfile</help>
 
         filtered = []
         for paper in papers:
-            pub_date_str = paper.get('published', '')
+            pub_date_str = paper.get("published", "")
             if not pub_date_str:
                 continue
 
             try:
                 # Parse publication date
-                pub_date = datetime.strptime(pub_date_str, '%Y-%m-%d')
+                pub_date = datetime.strptime(pub_date_str, "%Y-%m-%d")
 
                 # Check date range
                 if date_from:
-                    start_date = datetime.strptime(date_from, '%Y-%m-%d')
+                    start_date = datetime.strptime(date_from, "%Y-%m-%d")
                     if pub_date < start_date:
                         continue
 
                 if date_to:
-                    end_date = datetime.strptime(date_to, '%Y-%m-%d')
+                    end_date = datetime.strptime(date_to, "%Y-%m-%d")
                     if pub_date > end_date:
                         continue
 
@@ -232,7 +235,9 @@ RELATED: <help>websearch</help> <help>readfile</help>
         return filtered
 
     @staticmethod
-    async def _search_arxiv_by_ids(arxiv_ids: list[str]) -> tuple[list[dict], Optional[str]]:
+    async def _search_arxiv_by_ids(
+        arxiv_ids: list[str],
+    ) -> tuple[list[dict], str | None]:
         """
         Look up papers by arXiv IDs directly.
 
@@ -259,20 +264,24 @@ RELATED: <help>websearch</help> <help>readfile</help>
             papers = []
             for result in results:
                 paper = {
-                    'title': result.title,
-                    'authors': [author.name for author in result.authors],
-                    'abstract': result.summary.strip(),
-                    'published': result.published.strftime('%Y-%m-%d'),
-                    'updated': result.updated.strftime('%Y-%m-%d') if result.updated else None,
-                    'pdf_url': result.pdf_url,
-                    'arxiv_url': result.entry_id,
-                    'arxiv_id': result.get_short_id(),
-                    'categories': result.categories,
-                    'primary_category': result.primary_category,
-                    'comment': result.comment if hasattr(result, 'comment') else None,
-                    'journal_ref': result.journal_ref if hasattr(result, 'journal_ref') else None,
-                    'doi': result.doi if hasattr(result, 'doi') else None,
-                    'source': 'arxiv'
+                    "title": result.title,
+                    "authors": [author.name for author in result.authors],
+                    "abstract": result.summary.strip(),
+                    "published": result.published.strftime("%Y-%m-%d"),
+                    "updated": result.updated.strftime("%Y-%m-%d")
+                    if result.updated
+                    else None,
+                    "pdf_url": result.pdf_url,
+                    "arxiv_url": result.entry_id,
+                    "arxiv_id": result.get_short_id(),
+                    "categories": result.categories,
+                    "primary_category": result.primary_category,
+                    "comment": result.comment if hasattr(result, "comment") else None,
+                    "journal_ref": result.journal_ref
+                    if hasattr(result, "journal_ref")
+                    else None,
+                    "doi": result.doi if hasattr(result, "doi") else None,
+                    "source": "arxiv",
                 }
                 papers.append(paper)
 
@@ -293,8 +302,8 @@ RELATED: <help>websearch</help> <help>readfile</help>
         query: str,
         max_results: int,
         sort_by: str = "relevance",
-        sort_order: str = "descending"
-    ) -> tuple[list[dict], Optional[str]]:
+        sort_order: str = "descending",
+    ) -> tuple[list[dict], str | None]:
         """
         Search arXiv for papers using the official arXiv API.
 
@@ -310,20 +319,28 @@ RELATED: <help>websearch</help> <help>readfile</help>
         try:
             import arxiv
 
-            logger.info(f"Searching arXiv for: '{query}' (max={max_results}, sort={sort_by}/{sort_order})")
+            logger.info(
+                f"Searching arXiv for: '{query}' (max={max_results}, sort={sort_by}/{sort_order})"
+            )
 
             # Map sort_by to arXiv API criteria
             sort_criterion_map = {
-                'relevance': arxiv.SortCriterion.Relevance,
-                'submitted_date': arxiv.SortCriterion.SubmittedDate,
-                'date': arxiv.SortCriterion.SubmittedDate,  # Alias
-                'updated_date': arxiv.SortCriterion.LastUpdatedDate
+                "relevance": arxiv.SortCriterion.Relevance,
+                "submitted_date": arxiv.SortCriterion.SubmittedDate,
+                "date": arxiv.SortCriterion.SubmittedDate,  # Alias
+                "updated_date": arxiv.SortCriterion.LastUpdatedDate,
             }
 
-            sort_criterion = sort_criterion_map.get(sort_by, arxiv.SortCriterion.Relevance)
+            sort_criterion = sort_criterion_map.get(
+                sort_by, arxiv.SortCriterion.Relevance
+            )
 
             # Map sort_order to arXiv API
-            sort_order_value = arxiv.SortOrder.Ascending if sort_order == 'ascending' else arxiv.SortOrder.Descending
+            sort_order_value = (
+                arxiv.SortOrder.Ascending
+                if sort_order == "ascending"
+                else arxiv.SortOrder.Descending
+            )
 
             # Create search client
             client = arxiv.Client()
@@ -333,7 +350,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
                 query=query,
                 max_results=max_results,
                 sort_by=sort_criterion,
-                sort_order=sort_order_value
+                sort_order=sort_order_value,
             )
 
             # Execute search in thread pool to avoid blocking
@@ -342,20 +359,24 @@ RELATED: <help>websearch</help> <help>readfile</help>
             papers = []
             for result in results:
                 paper = {
-                    'title': result.title,
-                    'authors': [author.name for author in result.authors],
-                    'abstract': result.summary.strip(),
-                    'published': result.published.strftime('%Y-%m-%d'),
-                    'updated': result.updated.strftime('%Y-%m-%d') if result.updated else None,
-                    'pdf_url': result.pdf_url,
-                    'arxiv_url': result.entry_id,
-                    'arxiv_id': result.get_short_id(),
-                    'categories': result.categories,
-                    'primary_category': result.primary_category,
-                    'comment': result.comment if hasattr(result, 'comment') else None,
-                    'journal_ref': result.journal_ref if hasattr(result, 'journal_ref') else None,
-                    'doi': result.doi if hasattr(result, 'doi') else None,
-                    'source': 'arxiv'
+                    "title": result.title,
+                    "authors": [author.name for author in result.authors],
+                    "abstract": result.summary.strip(),
+                    "published": result.published.strftime("%Y-%m-%d"),
+                    "updated": result.updated.strftime("%Y-%m-%d")
+                    if result.updated
+                    else None,
+                    "pdf_url": result.pdf_url,
+                    "arxiv_url": result.entry_id,
+                    "arxiv_id": result.get_short_id(),
+                    "categories": result.categories,
+                    "primary_category": result.primary_category,
+                    "comment": result.comment if hasattr(result, "comment") else None,
+                    "journal_ref": result.journal_ref
+                    if hasattr(result, "journal_ref")
+                    else None,
+                    "doi": result.doi if hasattr(result, "doi") else None,
+                    "source": "arxiv",
                 }
                 papers.append(paper)
 
@@ -372,7 +393,9 @@ RELATED: <help>websearch</help> <help>readfile</help>
             return [], error_msg
 
     @staticmethod
-    async def _search_google_scholar(query: str, max_results: int, sort_by: str = "relevance") -> list[dict]:
+    async def _search_google_scholar(
+        query: str, max_results: int, sort_by: str = "relevance"
+    ) -> list[dict]:
         """
         Search Google Scholar for papers.
 
@@ -390,8 +413,12 @@ RELATED: <help>websearch</help> <help>readfile</help>
         try:
             from scholarly import scholarly
 
-            logger.info(f"Searching Google Scholar for: '{query}' (max_results={max_results})")
-            logger.warning("Google Scholar may block automated requests. Results may be limited.")
+            logger.info(
+                f"Searching Google Scholar for: '{query}' (max_results={max_results})"
+            )
+            logger.warning(
+                "Google Scholar may block automated requests. Results may be limited."
+            )
 
             # Execute search in thread pool to avoid blocking
             search_query = await asyncio.to_thread(scholarly.search_pubs, query)
@@ -407,15 +434,17 @@ RELATED: <help>websearch</help> <help>readfile</help>
                 try:
                     # Extract paper information
                     paper = {
-                        'title': result.get('bib', {}).get('title', 'N/A'),
-                        'authors': result.get('bib', {}).get('author', []),
-                        'abstract': result.get('bib', {}).get('abstract', 'No abstract available'),
-                        'published': result.get('bib', {}).get('pub_year', 'Unknown'),
-                        'venue': result.get('bib', {}).get('venue', 'Unknown'),
-                        'citations': result.get('num_citations', 0),
-                        'url': result.get('pub_url', result.get('eprint_url', 'N/A')),
-                        'pdf_url': result.get('eprint_url', 'N/A'),
-                        'source': 'google_scholar'
+                        "title": result.get("bib", {}).get("title", "N/A"),
+                        "authors": result.get("bib", {}).get("author", []),
+                        "abstract": result.get("bib", {}).get(
+                            "abstract", "No abstract available"
+                        ),
+                        "published": result.get("bib", {}).get("pub_year", "Unknown"),
+                        "venue": result.get("bib", {}).get("venue", "Unknown"),
+                        "citations": result.get("num_citations", 0),
+                        "url": result.get("pub_url", result.get("eprint_url", "N/A")),
+                        "pdf_url": result.get("eprint_url", "N/A"),
+                        "source": "google_scholar",
                     }
                     papers.append(paper)
                     count += 1
@@ -427,7 +456,9 @@ RELATED: <help>websearch</help> <help>readfile</help>
             return papers
 
         except ImportError:
-            logger.error("scholarly library not installed. Install with: pip install scholarly")
+            logger.error(
+                "scholarly library not installed. Install with: pip install scholarly"
+            )
             return []
         except Exception as e:
             logger.error(f"Error searching Google Scholar: {e}", exc_info=True)
@@ -450,16 +481,16 @@ RELATED: <help>websearch</help> <help>readfile</help>
         formatted_results = []
 
         for i, paper in enumerate(papers, 1):
-            source = paper.get('source', 'unknown')
-            title = paper.get('title', 'No Title')
-            authors = paper.get('authors', [])
+            source = paper.get("source", "unknown")
+            title = paper.get("title", "No Title")
+            authors = paper.get("authors", [])
 
             # Format authors
             if isinstance(authors, list):
                 if len(authors) > 3:
                     authors_str = f"{', '.join(authors[:3])}, et al."
                 else:
-                    authors_str = ', '.join(authors)
+                    authors_str = ", ".join(authors)
             else:
                 authors_str = str(authors)
 
@@ -471,59 +502,63 @@ RELATED: <help>websearch</help> <help>readfile</help>
             ]
 
             # Add publication info
-            if paper.get('published'):
+            if paper.get("published"):
                 result_parts.append(f"  Published: {paper['published']}")
 
-            if paper.get('updated'):
+            if paper.get("updated"):
                 result_parts.append(f"  Updated: {paper['updated']}")
 
             # Add venue for Google Scholar results
-            if paper.get('venue') and paper['venue'] != 'Unknown':
+            if paper.get("venue") and paper["venue"] != "Unknown":
                 result_parts.append(f"  Venue: {paper['venue']}")
 
             # Add citations for Google Scholar results
-            if paper.get('citations'):
+            if paper.get("citations"):
                 result_parts.append(f"  Citations: {paper['citations']}")
 
             # Add categories for arXiv results
-            if paper.get('primary_category'):
+            if paper.get("primary_category"):
                 result_parts.append(f"  Category: {paper['primary_category']}")
 
-            if paper.get('categories') and len(paper['categories']) > 1:
-                other_cats = [c for c in paper['categories'] if c != paper.get('primary_category')]
+            if paper.get("categories") and len(paper["categories"]) > 1:
+                other_cats = [
+                    c for c in paper["categories"] if c != paper.get("primary_category")
+                ]
                 if other_cats:
-                    result_parts.append(f"  Other Categories: {', '.join(other_cats[:3])}")
+                    result_parts.append(
+                        f"  Other Categories: {', '.join(other_cats[:3])}"
+                    )
 
             # Add DOI if available
-            if paper.get('doi'):
+            if paper.get("doi"):
                 result_parts.append(f"  DOI: {paper['doi']}")
 
             # Add journal reference if available
-            if paper.get('journal_ref'):
+            if paper.get("journal_ref"):
                 result_parts.append(f"  Journal: {paper['journal_ref']}")
 
             # Add abstract (truncated if too long)
-            abstract = paper.get('abstract', 'No abstract available')
+            abstract = paper.get("abstract", "No abstract available")
             if len(abstract) > 300:
                 abstract = abstract[:297] + "..."
             result_parts.append(f"  Abstract: {abstract}")
 
             # Add URLs
-            if paper.get('pdf_url') and paper['pdf_url'] != 'N/A':
+            if paper.get("pdf_url") and paper["pdf_url"] != "N/A":
                 result_parts.append(f"  PDF: {paper['pdf_url']}")
 
-            if paper.get('arxiv_url'):
+            if paper.get("arxiv_url"):
                 result_parts.append(f"  arXiv: {paper['arxiv_url']}")
-            elif paper.get('url') and paper['url'] != 'N/A':
+            elif paper.get("url") and paper["url"] != "N/A":
                 result_parts.append(f"  URL: {paper['url']}")
 
             # Add arXiv ID for easy reference
-            if paper.get('arxiv_id'):
+            if paper.get("arxiv_id"):
                 result_parts.append(f"  arXiv ID: {paper['arxiv_id']}")
 
-            formatted_results.append('\n'.join(result_parts))
+            formatted_results.append("\n".join(result_parts))
 
-        return '\n\n' + '\n\n'.join(formatted_results)
+        return "\n\n" + "\n\n".join(formatted_results)
 
     @staticmethod
     async def run(content: str) -> str:
@@ -538,21 +573,31 @@ RELATED: <help>websearch</help> <help>readfile</help>
         """
         try:
             # Parse XML parameters
-            query_match = re.search(r'<query>(.*?)</query>', content, re.DOTALL)
-            source_match = re.search(r'<source>(.*?)</source>', content, re.DOTALL)
-            max_results_match = re.search(r'<max_results>(\d+)</max_results>', content, re.DOTALL)
-            sort_by_match = re.search(r'<sort_by>(.*?)</sort_by>', content, re.DOTALL)
-            sort_order_match = re.search(r'<sort_order>(.*?)</sort_order>', content, re.DOTALL)
-            author_match = re.search(r'<author>(.*?)</author>', content, re.DOTALL)
-            category_match = re.search(r'<category>(.*?)</category>', content, re.DOTALL)
-            date_from_match = re.search(r'<date_from>(.*?)</date_from>', content, re.DOTALL)
-            date_to_match = re.search(r'<date_to>(.*?)</date_to>', content, re.DOTALL)
-            arxiv_ids_match = re.search(r'<arxiv_ids>(.*?)</arxiv_ids>', content, re.DOTALL)
+            query_match = re.search(r"<query>(.*?)</query>", content, re.DOTALL)
+            source_match = re.search(r"<source>(.*?)</source>", content, re.DOTALL)
+            max_results_match = re.search(
+                r"<max_results>(\d+)</max_results>", content, re.DOTALL
+            )
+            sort_by_match = re.search(r"<sort_by>(.*?)</sort_by>", content, re.DOTALL)
+            sort_order_match = re.search(
+                r"<sort_order>(.*?)</sort_order>", content, re.DOTALL
+            )
+            author_match = re.search(r"<author>(.*?)</author>", content, re.DOTALL)
+            category_match = re.search(
+                r"<category>(.*?)</category>", content, re.DOTALL
+            )
+            date_from_match = re.search(
+                r"<date_from>(.*?)</date_from>", content, re.DOTALL
+            )
+            date_to_match = re.search(r"<date_to>(.*?)</date_to>", content, re.DOTALL)
+            arxiv_ids_match = re.search(
+                r"<arxiv_ids>(.*?)</arxiv_ids>", content, re.DOTALL
+            )
 
             # Handle direct arXiv ID lookup
             if arxiv_ids_match:
                 ids_str = arxiv_ids_match.group(1).strip()
-                arxiv_ids = [id.strip() for id in ids_str.split(',') if id.strip()]
+                arxiv_ids = [id.strip() for id in ids_str.split(",") if id.strip()]
 
                 if not arxiv_ids:
                     return "Error: No valid arXiv IDs provided."
@@ -560,7 +605,7 @@ RELATED: <help>websearch</help> <help>readfile</help>
                 logger.info(f"Direct arXiv ID lookup: {arxiv_ids}")
                 print(f"🔎 Looking up {len(arxiv_ids)} papers by arXiv ID...")
 
-                papers, error = await paper_search._search_arxiv_by_ids(arxiv_ids)
+                papers, error = await papersearch._search_arxiv_by_ids(arxiv_ids)
 
                 if error:
                     return f"Error: {error}"
@@ -568,61 +613,73 @@ RELATED: <help>websearch</help> <help>readfile</help>
                 if not papers:
                     return f"No papers found for IDs: {', '.join(arxiv_ids)}"
 
-                result = paper_search._format_papers(papers)
+                result = papersearch._format_papers(papers)
                 print(f"✅ Found {len(papers)} papers")
                 return result
 
             # Validate required parameters for query-based search
             if not query_match:
-                return "Error: No search query provided. Use <query>your search</query> or <help>paper_search</help> for documentation."
+                return "Error: No search query provided. Use <query>your search</query> or <help>papersearch</help> for documentation."
 
             query = query_match.group(1).strip()
             if not query:
                 return "Error: Query cannot be empty."
 
             # Parse optional parameters
-            source = source_match.group(1).strip().lower() if source_match else 'arxiv'
-            max_results = int(max_results_match.group(1)) if max_results_match else paper_search.MAX_RESULTS
-            sort_by = sort_by_match.group(1).strip().lower() if sort_by_match else 'relevance'
-            sort_order = sort_order_match.group(1).strip().lower() if sort_order_match else 'descending'
+            source = source_match.group(1).strip().lower() if source_match else "arxiv"
+            max_results = (
+                int(max_results_match.group(1))
+                if max_results_match
+                else papersearch.MAX_RESULTS
+            )
+            sort_by = (
+                sort_by_match.group(1).strip().lower() if sort_by_match else "relevance"
+            )
+            sort_order = (
+                sort_order_match.group(1).strip().lower()
+                if sort_order_match
+                else "descending"
+            )
             author = author_match.group(1).strip() if author_match else None
             category = category_match.group(1).strip() if category_match else None
             date_from = date_from_match.group(1).strip() if date_from_match else None
             date_to = date_to_match.group(1).strip() if date_to_match else None
 
             # Validate parameters
-            if source not in ['arxiv', 'scholar', 'both']:
+            if source not in ["arxiv", "scholar", "both"]:
                 return f"Error: Invalid source '{source}'. Use 'arxiv', 'scholar', or 'both'."
 
             if max_results < 1 or max_results > 50:
                 return "Error: max_results must be between 1 and 50."
 
-            if sort_by not in ['relevance', 'date', 'submitted_date', 'updated_date']:
+            if sort_by not in ["relevance", "date", "submitted_date", "updated_date"]:
                 return f"Error: Invalid sort_by '{sort_by}'. Use 'relevance', 'submitted_date', or 'updated_date'."
 
-            if sort_order not in ['ascending', 'descending']:
+            if sort_order not in ["ascending", "descending"]:
                 return f"Error: Invalid sort_order '{sort_order}'. Use 'ascending' or 'descending'."
 
             # Validate date formats
             if date_from:
                 try:
-                    datetime.strptime(date_from, '%Y-%m-%d')
+                    datetime.strptime(date_from, "%Y-%m-%d")
                 except ValueError:
                     return f"Error: Invalid date_from format '{date_from}'. Use YYYY-MM-DD."
 
             if date_to:
                 try:
-                    datetime.strptime(date_to, '%Y-%m-%d')
+                    datetime.strptime(date_to, "%Y-%m-%d")
                 except ValueError:
                     return f"Error: Invalid date_to format '{date_to}'. Use YYYY-MM-DD."
 
             # Build enhanced query for arXiv
-            if source in ['arxiv', 'both']:
-                enhanced_query = paper_search._build_arxiv_query(query, author, category)
+            if source in ["arxiv", "both"]:
+                enhanced_query = papersearch._build_arxiv_query(query, author, category)
             else:
                 enhanced_query = query
 
-            logger.info(f"Paper search: query='{enhanced_query}', source={source}, max={max_results}, sort={sort_by}/{sort_order}")
+            logger.info(
+                f"Paper search: query='{enhanced_query}', source={source}, max={max_results}, sort={sort_by}/{sort_order}"
+            )
 
             # Build search description
             filters = []
@@ -635,21 +692,27 @@ RELATED: <help>websearch</help> <help>readfile</help>
                 filters.append(f"dates: {date_range}")
 
             filter_str = f" [{', '.join(filters)}]" if filters else ""
-            print(f"🔎 Searching for papers: '{query}'{filter_str} (source: {source}, max: {max_results})")
+            print(
+                f"🔎 Searching for papers: '{query}'{filter_str} (source: {source}, max: {max_results})"
+            )
 
             # Perform searches based on source parameter
             all_papers = []
             search_error = None
 
-            if source in ['arxiv', 'both']:
-                arxiv_papers, error = await paper_search._search_arxiv(enhanced_query, max_results, sort_by, sort_order)
+            if source in ["arxiv", "both"]:
+                arxiv_papers, error = await papersearch._search_arxiv(
+                    enhanced_query, max_results, sort_by, sort_order
+                )
                 if error:
                     search_error = error
                 else:
                     all_papers.extend(arxiv_papers)
 
-            if source in ['scholar', 'both']:
-                scholar_papers = await paper_search._search_google_scholar(query, max_results, sort_by)
+            if source in ["scholar", "both"]:
+                scholar_papers = await papersearch._search_google_scholar(
+                    query, max_results, sort_by
+                )
                 all_papers.extend(scholar_papers)
 
             # If there was an error and no papers from other sources, return the error
@@ -658,25 +721,27 @@ RELATED: <help>websearch</help> <help>readfile</help>
 
             # Apply date filtering if specified
             if date_from or date_to:
-                all_papers = paper_search._filter_by_date_range(all_papers, date_from, date_to)
+                all_papers = papersearch._filter_by_date_range(
+                    all_papers, date_from, date_to
+                )
 
             # Handle no results
             if not all_papers:
                 return f"No papers found for query: '{query}'{filter_str}"
 
             # Sort combined results if searching both sources
-            if source == 'both' and sort_by in ['date', 'submitted_date']:
+            if source == "both" and sort_by in ["date", "submitted_date"]:
                 # Sort by publication date
                 all_papers.sort(
-                    key=lambda p: str(p.get('published', '0000-00-00')),
-                    reverse=(sort_order == 'descending')
+                    key=lambda p: str(p.get("published", "0000-00-00")),
+                    reverse=(sort_order == "descending"),
                 )
 
             # Limit to max_results after combining and filtering
             all_papers = all_papers[:max_results]
 
             # Format and return results
-            result = paper_search._format_papers(all_papers)
+            result = papersearch._format_papers(all_papers)
 
             logger.info(f"Returning {len(all_papers)} papers to user")
             print(f"✅ Found {len(all_papers)} papers")
@@ -684,24 +749,29 @@ RELATED: <help>websearch</help> <help>readfile</help>
             return result
 
         except Exception as e:
-            logger.error(f"Unexpected error in paper_search tool: {e}", exc_info=True)
-            return f"An unexpected error occurred in the paper_search tool: {str(e)}"
+            logger.error(f"Unexpected error in papersearch tool: {e}", exc_info=True)
+            return f"An unexpected error occurred in the papersearch tool: {str(e)}"
 
 
 # Allow direct execution for testing
-if __name__ == '__main__':
+if __name__ == "__main__":
+
     async def test_search():
         """Test the paper search tool"""
         print("=== TESTING BASIC SEARCH ===")
-        basic_result = await paper_search.run('<query>quantum computing</query><max_results>2</max_results>')
+        basic_result = await papersearch.run(
+            "<query>quantum computing</query><max_results>2</max_results>"
+        )
         print(basic_result)
 
         print("\n=== TESTING ADVANCED SEARCH ===")
-        advanced_result = await paper_search.run('<query>au:Hinton AND ti:deep</query><max_results>2</max_results>')
+        advanced_result = await papersearch.run(
+            "<query>au:Hinton AND ti:deep</query><max_results>2</max_results>"
+        )
         print(advanced_result)
 
         print("\n=== TESTING DETAILED HELP ===")
-        help_text = paper_search.get_detailed_tool_info()
+        help_text = papersearch.get_detailed_tool_info()
         print(help_text[:500] + "...[truncated]")
 
     asyncio.run(test_search())
