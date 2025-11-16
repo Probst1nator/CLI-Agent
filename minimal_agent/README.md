@@ -4,7 +4,7 @@ A minimal version of the CLI-Agent project that runs an agent via the LLM router
 
 ## Features
 
-- **LLM Router**: Supports Anthropic (Claude) and OpenAI (GPT) models
+- **LLM Router**: Supports Anthropic (Claude Haiku 4.5), Google (Gemini), and Ollama (local models)
 - **4 Core Tools**:
   - `think`: Cognitive tool for reasoning and planning
   - `todos`: Persistent task list management
@@ -48,14 +48,18 @@ cp .env.example .env
 Edit `.env` and add at least one API key:
 
 ```bash
-# For Claude (Anthropic)
+# For Claude (Anthropic) - recommended
 ANTHROPIC_API_KEY=your-anthropic-api-key-here
 
-# OR for GPT (OpenAI)
-OPENAI_API_KEY=your-openai-api-key-here
+# For Gemini (Google)
+GOOGLE_API_KEY=your-google-api-key-here
+
+# For Ollama (local models) - no API key needed
+# Just install Ollama from https://ollama.ai/
+# Then run: ollama pull llama3.2
 
 # Optional: Set default model
-DEFAULT_MODEL=claude-3-5-sonnet-20241022
+DEFAULT_MODEL=claude-haiku-4-5
 ```
 
 ### 3. Run the Agent
@@ -183,13 +187,15 @@ The agent operates in a loop:
 
 ### LLM Router
 
-The router supports multiple providers:
-- **Anthropic**: Claude models (recommended)
-- **OpenAI**: GPT models
+The router supports three providers:
+- **Anthropic**: Claude Haiku 4.5 (fast, efficient, recommended)
+- **Google**: Gemini models (powerful, cost-effective)
+- **Ollama**: Local models (free, private, no API key needed)
 
 Models are auto-detected based on name:
 - `claude-*` → Anthropic
-- `gpt-*` → OpenAI
+- `gemini-*` → Google
+- `llama*`, `mistral*`, `codellama*`, etc. → Ollama
 
 ### Tool System
 
@@ -218,22 +224,29 @@ class toolname:
 
 ### Environment Variables
 
-- `ANTHROPIC_API_KEY`: Your Anthropic API key
-- `OPENAI_API_KEY`: Your OpenAI API key
-- `DEFAULT_MODEL`: Default model to use (default: `claude-3-5-sonnet-20241022`)
+- `ANTHROPIC_API_KEY`: Your Anthropic API key (for Claude models)
+- `GOOGLE_API_KEY`: Your Google API key (for Gemini models)
+- `DEFAULT_MODEL`: Default model to use (default: `claude-haiku-4-5`)
 
 ### Supported Models
 
-**Anthropic:**
-- `claude-3-5-sonnet-20241022` (recommended)
+**Anthropic (Claude):**
+- `claude-haiku-4-5` (recommended - fast and efficient)
+- `claude-3-5-sonnet-20241022`
 - `claude-3-opus-20240229`
-- `claude-3-sonnet-20240229`
-- `claude-3-haiku-20240307`
 
-**OpenAI:**
-- `gpt-4`
-- `gpt-4-turbo`
-- `gpt-3.5-turbo`
+**Google (Gemini):**
+- `gemini-1.5-flash` (fast and cost-effective)
+- `gemini-1.5-pro` (more capable)
+- `gemini-2.0-flash-exp` (experimental)
+
+**Ollama (Local):**
+- `llama3.2` (Meta's latest, efficient)
+- `llama3.1` (larger, more capable)
+- `mistral` (fast and capable)
+- `codellama` (code-specialized)
+- `phi3` (Microsoft's small model)
+- Any model available in Ollama library
 
 ## Limitations
 
@@ -251,14 +264,19 @@ For the full-featured version, see the parent CLI-Agent project.
 
 ## Troubleshooting
 
-### No API keys configured
+### No providers configured
 
 ```
-⚠️  No API keys configured!
-Set ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable
+⚠️  No providers configured!
+Configure at least one:
+  - ANTHROPIC_API_KEY for Claude models
+  - GOOGLE_API_KEY for Gemini models
+  - Install Ollama for local models
 ```
 
-**Solution**: Create a `.env` file with your API keys (see Setup section)
+**Solution**:
+- Create a `.env` file with at least one API key (see Setup section), OR
+- Install Ollama from https://ollama.ai/ and run `ollama pull llama3.2`
 
 ### Tool not found
 
@@ -305,18 +323,20 @@ class mytool:
 
 3. Restart the agent - tools are auto-loaded
 
-### Adding a New LLM Provider
+### Using Ollama (Local Models)
 
-Edit `llm_router.py` and add methods for the new provider:
+Ollama allows you to run models locally without API keys:
 
-```python
-def _is_myprovider_model(self, model: str) -> bool:
-    return model.startswith("myprefix")
+1. **Install Ollama**: Download from https://ollama.ai/
+2. **Pull a model**: `ollama pull llama3.2`
+3. **Run the agent**: The agent will automatically detect Ollama
+4. **Use in chat**: Set `DEFAULT_MODEL=llama3.2` or specify in requests
 
-def _call_myprovider(self, messages, model, max_tokens, temperature, stream):
-    # Implementation
-    pass
-```
+Benefits:
+- **Free**: No API costs
+- **Private**: Data stays on your machine
+- **Fast**: No network latency
+- **Offline**: Works without internet
 
 ## License
 
@@ -326,4 +346,5 @@ This minimal agent is part of the CLI-Agent project.
 
 - **Full CLI-Agent**: https://github.com/Probst1nator/CLI-Agent
 - **Anthropic API**: https://docs.anthropic.com/
-- **OpenAI API**: https://platform.openai.com/docs/
+- **Google AI (Gemini)**: https://ai.google.dev/
+- **Ollama**: https://ollama.ai/
