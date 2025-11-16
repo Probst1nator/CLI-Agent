@@ -469,6 +469,34 @@ class AudioManager {
     }
 
     /**
+     * Pause audio recording (during agent response/TTS playback)
+     */
+    pauseRecording() {
+        if (this.audioStreamWS && this.audioStreamWS.readyState === WebSocket.OPEN) {
+            try {
+                this.audioStreamWS.send(JSON.stringify({ action: 'pause' }));
+                console.log('🎤 Paused recording (agent responding)');
+            } catch (error) {
+                console.error('[AudioManager] Failed to pause recording:', error);
+            }
+        }
+    }
+
+    /**
+     * Resume audio recording (after agent response/TTS playback)
+     */
+    resumeRecording() {
+        if (this.audioStreamWS && this.audioStreamWS.readyState === WebSocket.OPEN) {
+            try {
+                this.audioStreamWS.send(JSON.stringify({ action: 'resume' }));
+                console.log('🎤 Resumed recording');
+            } catch (error) {
+                console.error('[AudioManager] Failed to resume recording:', error);
+            }
+        }
+    }
+
+    /**
      * Start recording with automatic Voice Activity Detection
      *
      * Uses Web Audio API ScriptProcessorNode to analyze audio amplitude in real-time.
@@ -1043,6 +1071,12 @@ class AudioManager {
         if (this.audioQueue.length === 0) {
             this.isPlayingQueue = false;
             console.log('Audio queue empty');
+
+            // Resume audio recording now that TTS playback is complete
+            if (typeof this.resumeRecording === 'function') {
+                this.resumeRecording();
+            }
+
             return;
         }
 

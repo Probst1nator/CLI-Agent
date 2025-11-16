@@ -456,6 +456,12 @@ class VisualResponseApp {
          */
         this.pendingTTS = null;
 
+        /**
+         * Last spoken text to prevent duplicate TTS on multiple message_added events
+         * @type {string|null}
+         */
+        this.lastSpokenText = null;
+
         // ===== STATUS/LOGGING =====
 
         /**
@@ -549,6 +555,16 @@ class VisualResponseApp {
                         text = text.replace(/\s+/g, ' ').trim();
 
                         if (text && text.trim()) {
+                            // CRITICAL: Prevent duplicate TTS by tracking last spoken text
+                            // message_added fires multiple times (think, todos, visualresponse)
+                            // Only speak if text is different from last spoken text
+                            if (this.lastSpokenText === text) {
+                                console.log('📝 Skipping duplicate TTS (same text as last spoken)');
+                                return;
+                            }
+
+                            this.lastSpokenText = text;
+
                             // Check if user has interacted yet (browser autoplay policy)
                             if (!this.audioManager.hasUserInteraction) {
                                 window.logDebug('⏸️ TTS queued - waiting for user interaction (browser autoplay policy)');
@@ -661,12 +677,15 @@ class VisualResponseApp {
 
                     text = text.replace(/\s+/g, ' ').trim();
 
+                    // REMOVED: Duplicate TTS call - handled by generation_complete event
+                    // This was causing 4x TTS generations for the same response
                     if (text && text.trim()) {
-                        try {
-                            await this.audioManager.playTTS(text, 'auto');
-                        } catch (error) {
-                            console.error('TTS playback failed:', error);
-                        }
+                        console.log('📝 message_added event received (TTS handled by generation_complete)');
+                        // try {
+                        //     await this.audioManager.playTTS(text, 'auto');
+                        // } catch (error) {
+                        //     console.error('TTS playback failed:', error);
+                        // }
                     }
                 }
             });
@@ -866,13 +885,15 @@ class VisualResponseApp {
         // Clean up whitespace
         textToSpeak = textToSpeak.replace(/\s+/g, ' ').trim();
 
+        // REMOVED: Duplicate TTS call - speakLatestResponse() is redundant
+        // TTS is handled by generation_complete event in setupWebSocket()
         if (textToSpeak && this.audioManager) {
-            console.log('🔊 Speaking latest response:', textToSpeak.substring(0, 100) + '...');
-            try {
-                await this.audioManager.playTTS(textToSpeak, 'auto');
-            } catch (error) {
-                console.error('Failed to play TTS:', error);
-            }
+            console.log('📝 speakLatestResponse called (TTS handled by generation_complete)');
+            // try {
+            //     await this.audioManager.playTTS(textToSpeak, 'auto');
+            // } catch (error) {
+            //     console.error('Failed to play TTS:', error);
+            // }
         } else {
             console.warn('No text to speak or audio manager not available');
         }
@@ -1602,6 +1623,14 @@ class VisualResponseApp {
                 };
 
                 const sendSuccess = this.wsManager.sendMessage(JSON.stringify(messageWithConfig));
+
+                // Reset TTS tracking for new conversation turn
+                this.lastSpokenText = null;
+
+                // Pause audio recording while agent generates response
+                if (this.audioManager && typeof this.audioManager.pauseRecording === 'function') {
+                    this.audioManager.pauseRecording();
+                }
 
                 if (!sendSuccess) {
                     throw new Error('Failed to send message via WebSocket');

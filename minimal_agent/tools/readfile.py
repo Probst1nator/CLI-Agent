@@ -5,6 +5,7 @@ Tool to read file contents with line number support.
 import os
 import re
 
+
 class readfile:
     """Read the contents of a specified file."""
     CHUNK_LIMIT = 20000  # Character limit to prevent overwhelming context

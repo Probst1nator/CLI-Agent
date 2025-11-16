@@ -3,7 +3,9 @@
 Minimal LLM router supporting Anthropic (Claude), Google (Gemini), and Ollama.
 """
 import os
-from typing import Optional, Iterator
+from collections.abc import Iterator
+from typing import Optional
+
 import anthropic
 import google.generativeai as genai
 import ollama

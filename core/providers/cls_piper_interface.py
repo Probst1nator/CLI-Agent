@@ -353,7 +353,7 @@ class PiperInterface(AudioProviderInterface):
                             os.unlink(temp_path)
                         except:
                             pass
-            print("finished playback")
+                    print("finished playback")
             return True
 
         except Exception as e:

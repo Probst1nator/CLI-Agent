@@ -3567,10 +3567,10 @@ async def main(  # type: ignore[misc]
                         if has_xml_tag or has_markdown:
                             tool_tags_found.append(tool_class)
                             if delim == 'todos':
-                                logging.debug(f"🔍 TODOS TOOL DETECTED in response")
+                                logging.debug("🔍 TODOS TOOL DETECTED in response")
 
                     if 'todos' in [tc.get_delim() for tc in tool_tags_found]:
-                        logging.debug(f"✅ TODOS in tool_tags_found list")
+                        logging.debug("✅ TODOS in tool_tags_found list")
                         logging.debug(f"📋 Complete tool_tags_found: {[tc.get_delim() for tc in tool_tags_found]}")
 
                     # Store original response for TTS (ALWAYS, not just when tools found)
@@ -3804,7 +3804,7 @@ async def main(  # type: ignore[misc]
                                 for tool_class in tool_tags_found:
                                     tool_name = tool_class.get_delim()
                                     if tool_name == 'todos':
-                                        logging.debug(f"🎯 About to execute TODOS tool")
+                                        logging.debug("🎯 About to execute TODOS tool")
                                     blocks = get_extract_blocks()(
                                         assistant_response, [tool_name]
                                     )
