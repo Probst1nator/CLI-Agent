@@ -6,10 +6,11 @@ from pathlib import Path
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
+from tools.grepsearch import grepsearch
+from tools.readfile import readfile
 from tools.think import think
 from tools.todos import todos
-from tools.readfile import readfile
-from tools.grepsearch import grepsearch
+
 
 def test_tool(tool_class, tool_name):
     """Test that a tool has the required methods."""

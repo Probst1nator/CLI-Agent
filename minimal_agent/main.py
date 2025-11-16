@@ -3,14 +3,12 @@
 """
 Minimal agent with LLM router and 4 tools: think, todos, readfile, grepsearch.
 """
+import importlib.util
 import os
 import re
-import sys
-import importlib.util
-from typing import Optional
 from pathlib import Path
 
-from chat import Chat, Role
+from chat import Chat
 from llm_router import LLMRouter
 
 

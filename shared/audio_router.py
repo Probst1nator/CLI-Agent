@@ -49,11 +49,15 @@ async def route_tts_audio(
     # Check if we're in GUI/API mode
     gui_mode = getattr(g, 'GUI_MODE', False)
 
+    logger.debug(f"🔀 route_tts_audio: GUI_MODE={gui_mode}, text={text[:30]}...")
+
     if gui_mode:
         # Route through WebSocket to frontend
+        logger.debug("→ Routing to frontend via WebSocket")
         return await _stream_to_frontend(text, audio_data, language, speed, volume)
     else:
         # Use native Python audio playback
+        logger.debug("→ Routing to native playback")
         return await _play_native(text, audio_data, voice, speed, volume, language, **kwargs)
 
 
@@ -80,15 +84,21 @@ async def _stream_to_frontend(
     try:
         from tools.visualresponse import visualresponse
 
+        logger.debug(f"🎵 _stream_to_frontend called for text: {text[:50]}...")
+
         if not audio_data:
-            logger.warning("No audio data provided for frontend streaming")
+            logger.warning("❌ No audio data provided for frontend streaming")
             return False
+
+        logger.debug(f"✅ Audio data size: {len(audio_data)} bytes")
 
         # Get active WebSocket session
         session = visualresponse._get_session()
         if not session or not session.is_healthy():
-            logger.warning("No active WebSocket session for audio streaming")
+            logger.warning("❌ No active WebSocket session for audio streaming")
             return False
+
+        logger.debug("✅ WebSocket session found and healthy")
 
         # Encode audio as base64 for WebSocket transmission
         audio_base64 = base64.b64encode(audio_data).decode('utf-8')
@@ -113,7 +123,7 @@ async def _stream_to_frontend(
         }
 
         session.send_update(audio_payload)
-        logger.debug(f"Streamed {len(audio_data)} bytes of TTS audio to frontend")
+        logger.info(f"🎵 Streamed {len(audio_data)} bytes of TTS audio to frontend via WebSocket (duration: {duration_seconds:.2f}s)")
         return True
 
     except Exception as e:

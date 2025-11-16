@@ -5,6 +5,7 @@ Tool to search for patterns within file contents, filenames, and directory names
 import os
 import re
 
+
 class grepsearch:
     MAX_RESULTS = 100  # Prevent overwhelming the context window
 

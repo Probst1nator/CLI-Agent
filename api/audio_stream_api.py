@@ -50,6 +50,7 @@ class AudioStreamHandler:
         self.max_duration = DEFAULT_MAX_DURATION
         self.num_silent_chunks_to_stop = int(self.silence_duration * 10)
         self.printed_listening = False  # Track if we've printed the listening message
+        self.paused = False  # Pause recording during agent response/TTS playback
 
     def process_chunk(self, audio_chunk: np.ndarray) -> Optional[np.ndarray]:
         """
@@ -58,6 +59,10 @@ class AudioStreamHandler:
         Returns:
             Complete audio recording when silence detected, None otherwise
         """
+        # Skip processing if paused (agent responding or TTS playing)
+        if self.paused:
+            return None
+
         # Print initial listening message (like CLI mode)
         if not self.printed_listening:
             print(f"<{colored('Recording', 'red')}> Listening...")
@@ -113,6 +118,19 @@ class AudioStreamHandler:
         logger.info(f"Finalized recording: {len(audio_data)} samples, {len(audio_data)/SAMPLE_RATE:.2f}s duration")
         return audio_data
 
+    def pause(self):
+        """Pause audio processing during agent response/TTS playback"""
+        self.paused = True
+        print(f"<{colored('Recording', 'yellow')}> Paused (agent responding)")
+        logger.debug("Audio stream paused")
+
+    def resume(self):
+        """Resume audio processing after agent response/TTS playback"""
+        self.paused = False
+        self.printed_listening = False  # Allow "Listening..." to print again
+        print(f"<{colored('Recording', 'green')}> Resumed")
+        logger.debug("Audio stream resumed")
+
 
 async def websocket_audio_stream(request: Any) -> Any:
     """
@@ -136,7 +154,28 @@ async def websocket_audio_stream(request: Any) -> Any:
 
     try:
         async for msg in ws:
-            if msg.type == aiohttp.WSMsgType.BINARY:
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                # Handle control messages (pause/resume/reset)
+                try:
+                    import json
+                    data = json.loads(msg.data)
+                    action = data.get('action')
+                    msg_type = data.get('type')  # Legacy support
+
+                    if action == 'pause':
+                        handler.pause()
+                    elif action == 'resume':
+                        handler.resume()
+                    elif action == 'reset' or msg_type == 'reset':
+                        handler = AudioStreamHandler()
+                        logger.info("Audio stream handler reset")
+                    else:
+                        logger.warning(f"Unknown audio stream message: action={action}, type={msg_type}")
+
+                except Exception as e:
+                    logger.error(f"Error handling audio stream control message: {e}")
+
+            elif msg.type == aiohttp.WSMsgType.BINARY:
                 try:
                     # Convert binary data to numpy array
                     # Browser sends Float32Array as binary
@@ -178,6 +217,10 @@ async def websocket_audio_stream(request: Any) -> Any:
                                 # Print user reply message (like CLI mode)
                                 print(f"🎤 User replied: \"{text.strip()}\"")
 
+                                # Pause recording while agent generates response + TTS plays
+                                # Frontend will resume after TTS completes
+                                handler.pause()
+
                                 # Send transcription back to client
                                 await ws.send_json({
                                     "type": "transcription",
@@ -185,9 +228,6 @@ async def websocket_audio_stream(request: Any) -> Any:
                                     "language": language
                                 })
                                 logger.debug(f"Sent transcription: {text[:100]}...")
-
-                                # Reset handler for next recording
-                                handler = AudioStreamHandler()
                             else:
                                 # Empty transcription
                                 print(f"<{colored('Warning', 'yellow')}> No speech detected.")
@@ -215,16 +255,6 @@ async def websocket_audio_stream(request: Any) -> Any:
                         "type": "error",
                         "error": f"Audio processing failed: {str(e)}"
                     })
-
-            elif msg.type == aiohttp.WSMsgType.TEXT:
-                # Handle control messages if needed
-                try:
-                    data = msg.json()
-                    if data.get("type") == "reset":
-                        handler = AudioStreamHandler()
-                        logger.info("Audio stream handler reset")
-                except Exception as e:
-                    logger.error(f"Error handling text message: {e}")
 
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 logger.error(f"WebSocket error: {ws.exception()}")
