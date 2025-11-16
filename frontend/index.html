@@ -115,10 +115,16 @@
                 <span class="console-icon">📺</span>
                 <span class="console-text">Console</span>
             </button>
-            <button id="todos-toggle-btn" class="todos-toggle-button" title="Toggle todos sidebar (auto-show on updates)">
-                <span class="todos-icon">✓</span>
-                <span class="todos-text">Todos</span>
-            </button>
+            <div class="todos-button-container">
+                <button id="todos-toggle-btn" class="todos-toggle-button" title="Toggle todos sidebar">
+                    <span class="todos-icon">✓</span>
+                    <span class="todos-text">Todos</span>
+                </button>
+                <label class="todos-auto-show-toggle" title="Automatically show sidebar when todos are updated">
+                    <input type="checkbox" id="todos-auto-show" checked>
+                    <span class="auto-show-text">Auto-show</span>
+                </label>
+            </div>
             <button id="regenerate-prompts-btn" class="regenerate-prompts-button" title="Suggest prompts">
                 <svg width="16" height="16" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
                     <path d="M29.92,16.38a1,1,0,0,0,0-.76,1,1,0,0,0-.21-.33l-6-6a1,1,0,0,0-1.42,1.42L26.59,15H16V7a2,2,0,0,0-2-2H10V4A2,2,0,0,0,8,2H4A2,2,0,0,0,2,4V8a2,2,0,0,0,2,2H8a2,2,0,0,0,2-2V7h4v8H10V14a2,2,0,0,0-2-2H4a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2H8a2,2,0,0,0,2-2V17h4v8H10V24a2,2,0,0,0-2-2H4a2,2,0,0,0-2,2v4a2,2,0,0,0,2,2H8a2,2,0,0,0,2-2V27h4a2,2,0,0,0,2-2V17H26.59l-4.3,4.29a1,1,0,0,0,0,1.42,1,1,0,0,0,1.42,0l6-6A1,1,0,0,0,29.92,16.38ZM8,8H4V4H8ZM8,18H4V14H8ZM8,28H4V24H8Z"/>
@@ -197,12 +203,6 @@
                 <div class="todos-resize-handle" id="todos-resize-handle"></div>
                 <div class="todos-header">
                     <h3>Todos</h3>
-                    <div class="todos-controls">
-                        <label class="todos-auto-show-label" title="Automatically show sidebar when todos are updated">
-                            <input type="checkbox" id="todos-auto-show" checked>
-                            <span>Auto-show</span>
-                        </label>
-                    </div>
                 </div>
                 <div id="todos-content" class="todos-content">
                     <div class="todos-empty">

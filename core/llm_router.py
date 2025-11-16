@@ -1342,6 +1342,7 @@ class LlmRouter:
             # Broadcast model failure to frontend
             try:
                 import asyncio
+
                 from api.server import broadcast_model_failure
 
                 # Run broadcast in background without awaiting
