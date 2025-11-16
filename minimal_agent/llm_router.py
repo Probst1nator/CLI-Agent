@@ -14,16 +14,13 @@ class LLMRouter:
 
     def __init__(self):
         """Initialize the router with API keys from environment."""
-        self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
         self.google_key = os.getenv("GOOGLE_API_KEY")
+        self.anthropic_key = os.getenv("ANTHROPIC_API_KEY")
 
-        # Initialize clients
-        self.anthropic_client = None
+        # Initialize clients (order: Google -> Ollama -> Anthropic)
         self.google_configured = False
         self.ollama_available = False
-
-        if self.anthropic_key:
-            self.anthropic_client = anthropic.Anthropic(api_key=self.anthropic_key)
+        self.anthropic_client = None
 
         if self.google_key:
             genai.configure(api_key=self.google_key)
@@ -36,12 +33,11 @@ class LLMRouter:
         except Exception:
             self.ollama_available = False
 
-        # Default model - Claude Haiku 4.5
-        self.default_model = os.getenv("DEFAULT_MODEL", "claude-haiku-4-5")
+        if self.anthropic_key:
+            self.anthropic_client = anthropic.Anthropic(api_key=self.anthropic_key)
 
-    def _is_anthropic_model(self, model: str) -> bool:
-        """Check if model is an Anthropic model."""
-        return model.startswith("claude")
+        # Default model - Gemini 1.5 Flash (Google)
+        self.default_model = os.getenv("DEFAULT_MODEL", "gemini-1.5-flash")
 
     def _is_google_model(self, model: str) -> bool:
         """Check if model is a Google (Gemini) model."""
@@ -52,6 +48,10 @@ class LLMRouter:
         # Ollama supports various models - common ones include llama, mistral, codellama, etc.
         ollama_prefixes = ["llama", "mistral", "codellama", "phi", "mixtral", "vicuna", "orca"]
         return any(model.startswith(prefix) for prefix in ollama_prefixes)
+
+    def _is_anthropic_model(self, model: str) -> bool:
+        """Check if model is an Anthropic model."""
+        return model.startswith("claude")
 
     def generate_completion(
         self,
@@ -77,13 +77,13 @@ class LLMRouter:
         if model is None:
             model = self.default_model
 
-        # Route to appropriate provider
-        if self._is_anthropic_model(model):
-            return self._call_anthropic(messages, model, max_tokens, temperature, stream)
-        elif self._is_google_model(model):
+        # Route to appropriate provider (order: Google -> Ollama -> Anthropic)
+        if self._is_google_model(model):
             return self._call_google(messages, model, max_tokens, temperature, stream)
         elif self._is_ollama_model(model):
             return self._call_ollama(messages, model, max_tokens, temperature, stream)
+        elif self._is_anthropic_model(model):
+            return self._call_anthropic(messages, model, max_tokens, temperature, stream)
         else:
             raise ValueError(f"Unsupported model: {model}")
 
@@ -229,12 +229,12 @@ class LLMRouter:
             return response["message"]["content"]
 
     def list_available_providers(self) -> list[str]:
-        """List which providers are configured."""
+        """List which providers are configured (order: Google -> Ollama -> Anthropic)."""
         providers = []
-        if self.anthropic_client:
-            providers.append("Anthropic (Claude)")
         if self.google_configured:
             providers.append("Google (Gemini)")
         if self.ollama_available:
             providers.append("Ollama (Local)")
+        if self.anthropic_client:
+            providers.append("Anthropic (Claude)")
         return providers

@@ -4,7 +4,7 @@ A minimal version of the CLI-Agent project that runs an agent via the LLM router
 
 ## Features
 
-- **LLM Router**: Supports Anthropic (Claude Haiku 4.5), Google (Gemini), and Ollama (local models)
+- **LLM Router**: Supports Google (Gemini), Ollama (local models), and Anthropic (Claude)
 - **4 Core Tools**:
   - `think`: Cognitive tool for reasoning and planning
   - `todos`: Persistent task list management
@@ -48,18 +48,18 @@ cp .env.example .env
 Edit `.env` and add at least one API key:
 
 ```bash
-# For Claude (Anthropic) - recommended
-ANTHROPIC_API_KEY=your-anthropic-api-key-here
-
-# For Gemini (Google)
+# For Gemini (Google) - recommended
 GOOGLE_API_KEY=your-google-api-key-here
 
 # For Ollama (local models) - no API key needed
 # Just install Ollama from https://ollama.ai/
 # Then run: ollama pull llama3.2
 
+# For Claude (Anthropic)
+ANTHROPIC_API_KEY=your-anthropic-api-key-here
+
 # Optional: Set default model
-DEFAULT_MODEL=claude-haiku-4-5
+DEFAULT_MODEL=gemini-1.5-flash
 ```
 
 ### 3. Run the Agent
@@ -187,15 +187,15 @@ The agent operates in a loop:
 
 ### LLM Router
 
-The router supports three providers:
-- **Anthropic**: Claude Haiku 4.5 (fast, efficient, recommended)
-- **Google**: Gemini models (powerful, cost-effective)
+The router supports three providers (in order of preference):
+- **Google**: Gemini models (fast, powerful, recommended)
 - **Ollama**: Local models (free, private, no API key needed)
+- **Anthropic**: Claude models (fast, efficient)
 
 Models are auto-detected based on name:
-- `claude-*` → Anthropic
 - `gemini-*` → Google
 - `llama*`, `mistral*`, `codellama*`, etc. → Ollama
+- `claude-*` → Anthropic
 
 ### Tool System
 
@@ -224,19 +224,14 @@ class toolname:
 
 ### Environment Variables
 
-- `ANTHROPIC_API_KEY`: Your Anthropic API key (for Claude models)
 - `GOOGLE_API_KEY`: Your Google API key (for Gemini models)
-- `DEFAULT_MODEL`: Default model to use (default: `claude-haiku-4-5`)
+- `ANTHROPIC_API_KEY`: Your Anthropic API key (for Claude models)
+- `DEFAULT_MODEL`: Default model to use (default: `gemini-1.5-flash`)
 
 ### Supported Models
 
-**Anthropic (Claude):**
-- `claude-haiku-4-5` (recommended - fast and efficient)
-- `claude-3-5-sonnet-20241022`
-- `claude-3-opus-20240229`
-
 **Google (Gemini):**
-- `gemini-1.5-flash` (fast and cost-effective)
+- `gemini-1.5-flash` (recommended - fast and cost-effective)
 - `gemini-1.5-pro` (more capable)
 - `gemini-2.0-flash-exp` (experimental)
 
@@ -247,6 +242,11 @@ class toolname:
 - `codellama` (code-specialized)
 - `phi3` (Microsoft's small model)
 - Any model available in Ollama library
+
+**Anthropic (Claude):**
+- `claude-haiku-4-5` (fast and efficient)
+- `claude-3-5-sonnet-20241022`
+- `claude-3-opus-20240229`
 
 ## Limitations
 
@@ -268,15 +268,16 @@ For the full-featured version, see the parent CLI-Agent project.
 
 ```
 ⚠️  No providers configured!
-Configure at least one:
-  - ANTHROPIC_API_KEY for Claude models
-  - GOOGLE_API_KEY for Gemini models
-  - Install Ollama for local models
+Configure at least one (in order of preference):
+  1. GOOGLE_API_KEY for Gemini models (recommended)
+  2. Install Ollama for local models
+  3. ANTHROPIC_API_KEY for Claude models
 ```
 
-**Solution**:
-- Create a `.env` file with at least one API key (see Setup section), OR
-- Install Ollama from https://ollama.ai/ and run `ollama pull llama3.2`
+**Solution** (in order of preference):
+1. Create a `.env` file with `GOOGLE_API_KEY` (see Setup section), OR
+2. Install Ollama from https://ollama.ai/ and run `ollama pull llama3.2`, OR
+3. Create a `.env` file with `ANTHROPIC_API_KEY`
 
 ### Tool not found
 
@@ -345,6 +346,6 @@ This minimal agent is part of the CLI-Agent project.
 ## Related
 
 - **Full CLI-Agent**: https://github.com/Probst1nator/CLI-Agent
-- **Anthropic API**: https://docs.anthropic.com/
 - **Google AI (Gemini)**: https://ai.google.dev/
 - **Ollama**: https://ollama.ai/
+- **Anthropic API**: https://docs.anthropic.com/

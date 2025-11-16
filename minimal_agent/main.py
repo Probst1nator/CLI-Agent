@@ -191,10 +191,10 @@ Always be helpful, accurate, and use tools when appropriate to accomplish tasks.
             print(f"Available providers: {', '.join(providers)}")
         else:
             print("\n⚠️  No providers configured!")
-            print("Configure at least one:")
-            print("  - ANTHROPIC_API_KEY for Claude models")
-            print("  - GOOGLE_API_KEY for Gemini models")
-            print("  - Install Ollama for local models (https://ollama.ai/)")
+            print("Configure at least one (in order of preference):")
+            print("  1. GOOGLE_API_KEY for Gemini models (recommended)")
+            print("  2. Install Ollama for local models (https://ollama.ai/)")
+            print("  3. ANTHROPIC_API_KEY for Claude models")
             return
 
         print("\nType your message and press Enter. Use 'quit' or 'exit' to stop.")
