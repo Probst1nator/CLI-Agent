@@ -1,4 +1,5 @@
 # Minimal Agent Requirements
 # LLM Providers
 anthropic>=0.39.0
-openai>=1.0.0
+google-generativeai>=0.3.0
+ollama>=0.1.0
