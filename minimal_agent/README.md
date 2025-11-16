@@ -59,7 +59,7 @@ GOOGLE_API_KEY=your-google-api-key-here
 ANTHROPIC_API_KEY=your-anthropic-api-key-here
 
 # Optional: Set default model
-DEFAULT_MODEL=gemini-1.5-flash
+DEFAULT_MODEL=gemini-flash-latest
 ```
 
 ### 3. Run the Agent
@@ -226,14 +226,13 @@ class toolname:
 
 - `GOOGLE_API_KEY`: Your Google API key (for Gemini models)
 - `ANTHROPIC_API_KEY`: Your Anthropic API key (for Claude models)
-- `DEFAULT_MODEL`: Default model to use (default: `gemini-1.5-flash`)
+- `DEFAULT_MODEL`: Default model to use (default: `gemini-flash-latest`)
 
 ### Supported Models
 
 **Google (Gemini):**
-- `gemini-1.5-flash` (recommended - fast and cost-effective)
-- `gemini-1.5-pro` (more capable)
-- `gemini-2.0-flash-exp` (experimental)
+- `gemini-flash-latest` (recommended - fast and cost-effective)
+- `gemini-flash-lite-latest` (lighter, even faster)
 
 **Ollama (Local):**
 - `llama3.2` (Meta's latest, efficient)

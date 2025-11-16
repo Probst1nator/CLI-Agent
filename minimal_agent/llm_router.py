@@ -36,8 +36,8 @@ class LLMRouter:
         if self.anthropic_key:
             self.anthropic_client = anthropic.Anthropic(api_key=self.anthropic_key)
 
-        # Default model - Gemini 1.5 Flash (Google)
-        self.default_model = os.getenv("DEFAULT_MODEL", "gemini-1.5-flash")
+        # Default model - Gemini Flash Latest (Google)
+        self.default_model = os.getenv("DEFAULT_MODEL", "gemini-flash-latest")
 
     def _is_google_model(self, model: str) -> bool:
         """Check if model is a Google (Gemini) model."""
