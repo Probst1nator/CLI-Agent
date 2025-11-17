@@ -1,0 +1,200 @@
+/**
+ * ML Score Visualization Styles
+ *
+ * Styles for the machine learning safety score indicator
+ * shown in permission request prompts.
+ */
+
+/* ML Score Container */
+.ml-score-container {
+    margin: 12px 0;
+    padding: 12px;
+    background: rgba(99, 102, 241, 0.05);
+    border-left: 3px solid #6366f1;
+    border-radius: 4px;
+}
+
+.ml-score-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.ml-score-label {
+    font-weight: 500;
+    color: #6b7280;
+    font-size: 0.95em;
+}
+
+.ml-score-value {
+    font-weight: 600;
+    font-size: 1.05em;
+}
+
+/* Score Bar */
+.ml-score-bar-container {
+    position: relative;
+    margin: 12px 0 24px 0;
+}
+
+.ml-score-bar {
+    position: relative;
+    height: 8px;
+    background: linear-gradient(to right,
+        #ef4444 0%,
+        #f59e0b 50%,
+        #10b981 100%);
+    border-radius: 4px;
+    overflow: visible;
+}
+
+.ml-score-indicator {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 16px;
+    height: 16px;
+    border: 3px solid white;
+    border-radius: 50%;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    transition: all 0.3s ease;
+}
+
+.ml-score-markers {
+    position: absolute;
+    top: 12px;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+}
+
+.ml-score-marker {
+    font-size: 0.7em;
+    color: #9ca3af;
+    font-family: monospace;
+}
+
+/* Confidence Bar */
+.ml-confidence-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.ml-confidence-label {
+    font-size: 0.9em;
+    color: #6b7280;
+    min-width: 80px;
+}
+
+.ml-confidence-bar {
+    flex: 1;
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.ml-confidence-fill {
+    height: 100%;
+    transition: width 0.3s ease;
+    border-radius: 4px;
+}
+
+.ml-confidence-value {
+    font-size: 0.9em;
+    font-weight: 600;
+    min-width: 40px;
+    text-align: right;
+}
+
+/* ML Reason Details */
+.ml-reason {
+    margin-top: 8px;
+}
+
+.ml-reason details {
+    cursor: pointer;
+}
+
+.ml-reason summary {
+    font-size: 0.9em;
+    color: #6366f1;
+    font-weight: 500;
+    user-select: none;
+}
+
+.ml-reason summary:hover {
+    text-decoration: underline;
+}
+
+.ml-reason p {
+    margin: 8px 0 0 0;
+    padding: 8px;
+    background: rgba(99, 102, 241, 0.05);
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: #4b5563;
+    line-height: 1.5;
+}
+
+/* Disabled state */
+.ml-score-container.ml-disabled {
+    opacity: 0.6;
+    border-left-color: #9ca3af;
+}
+
+.ml-score-container.ml-disabled p {
+    margin: 0;
+    color: #6b7280;
+    font-size: 0.9em;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .ml-score-container {
+        background: rgba(99, 102, 241, 0.1);
+    }
+
+    .ml-score-label,
+    .ml-confidence-label {
+        color: #9ca3af;
+    }
+
+    .ml-score-marker {
+        color: #6b7280;
+    }
+
+    .ml-reason p {
+        background: rgba(99, 102, 241, 0.1);
+        color: #d1d5db;
+    }
+
+    .ml-confidence-bar {
+        background: #374151;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .ml-score-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .ml-score-value {
+        font-size: 1em;
+    }
+
+    .ml-confidence-label {
+        min-width: 70px;
+        font-size: 0.85em;
+    }
+
+    .ml-confidence-value {
+        font-size: 0.85em;
+    }
+}

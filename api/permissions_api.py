@@ -462,6 +462,170 @@ async def add_permission_rule(request: Any) -> Any:
         }, status=500)
 
 
+async def get_ml_config(request: Any) -> Any:
+    """GET /api/permissions/ml-config
+
+    Get ML configuration.
+
+    Returns:
+        {
+            "status": "success",
+            "ml_config": {
+                "enabled": false,
+                "model": "embeddinggemma:latest",
+                "threshold_allow": 0.01,
+                "threshold_deny": -0.01,
+                ...
+            }
+        }
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        from core.permissions.settings_manager import SettingsManager
+
+        mgr = SettingsManager()
+        ml_config = mgr.get_ml_config()
+
+        return web.json_response({
+            "status": "success",
+            "ml_config": ml_config
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to get ML config: {e}", exc_info=True)
+        return web.json_response({
+            "status": "error",
+            "error": str(e),
+            "code": "INTERNAL_ERROR"
+        }, status=500)
+
+
+async def update_ml_config(request: Any) -> Any:
+    """POST /api/permissions/ml-config
+
+    Update ML configuration.
+
+    Request body:
+        {
+            "enabled": true,
+            "threshold_allow": 0.02,
+            "threshold_deny": -0.02,
+            ...
+        }
+
+    Returns:
+        {
+            "status": "success",
+            "message": "ML config updated",
+            "ml_config": {...}
+        }
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        from core.permissions.settings_manager import SettingsManager
+
+        data = await request.json()
+
+        mgr = SettingsManager()
+
+        # Special handling for enabled flag
+        if "enabled" in data:
+            mgr.set_ml_enabled(data["enabled"])
+            # Remove from data to avoid duplicate update
+            data = {k: v for k, v in data.items() if k != "enabled"}
+
+        # Update other config parameters
+        if data:
+            mgr.update_ml_config(**data)
+
+        return web.json_response({
+            "status": "success",
+            "message": "ML configuration updated",
+            "ml_config": mgr.get_ml_config()
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to update ML config: {e}", exc_info=True)
+        return web.json_response({
+            "status": "error",
+            "error": str(e),
+            "code": "INTERNAL_ERROR"
+        }, status=500)
+
+
+async def get_ml_stats(request: Any) -> Any:
+    """GET /api/permissions/ml-stats
+
+    Get ML permission statistics.
+
+    Returns:
+        {
+            "status": "success",
+            "stats": {
+                "total_checks": 156,
+                "static_deny": 12,
+                "ml_auto_allow": 89,
+                ...
+            }
+        }
+    """
+    if not AIOHTTP_AVAILABLE:
+        raise RuntimeError("aiohttp not available")
+
+    try:
+        from core.permissions.settings_manager import SettingsManager
+
+        mgr = SettingsManager()
+        ml_config = mgr.get_ml_config()
+
+        if not ml_config.get("enabled", False):
+            return web.json_response({
+                "status": "success",
+                "stats": None,
+                "message": "ML not enabled"
+            })
+
+        # Try to get stats from autonomous permission instance
+        # Note: In production, this should be a singleton/global instance
+        try:
+            from core.permissions.autonomous_permission import AutonomousPermission
+
+            autonomous = AutonomousPermission(
+                settings_manager=mgr,
+                ml_enabled=True,
+                ml_model=ml_config.get("model", "embeddinggemma:latest"),
+                threshold_allow=ml_config.get("threshold_allow", 0.01),
+                threshold_deny=ml_config.get("threshold_deny", -0.01)
+            )
+
+            stats = autonomous.get_stats()
+
+            return web.json_response({
+                "status": "success",
+                "stats": stats
+            })
+
+        except Exception as e:
+            logger.warning(f"Could not get ML stats: {e}")
+            return web.json_response({
+                "status": "success",
+                "stats": None,
+                "message": "Statistics not available (ML not initialized)"
+            })
+
+    except Exception as e:
+        logger.error(f"Failed to get ML stats: {e}", exc_info=True)
+        return web.json_response({
+            "status": "error",
+            "error": str(e),
+            "code": "INTERNAL_ERROR"
+        }, status=500)
+
+
 def setup_routes(app: Any):
     """Register all permissions API routes"""
     app.router.add_get("/api/permissions", get_permissions)
@@ -469,4 +633,8 @@ def setup_routes(app: Any):
     app.router.add_post("/api/permissions/add-rule", add_permission_rule)
     app.router.add_post("/api/permissions/reset", reset_permissions)
     app.router.add_post("/api/permissions/save-as-default", save_as_default_permissions)
-    logger.info("Permissions API routes registered")
+    # ML endpoints
+    app.router.add_get("/api/permissions/ml-config", get_ml_config)
+    app.router.add_post("/api/permissions/ml-config", update_ml_config)
+    app.router.add_get("/api/permissions/ml-stats", get_ml_stats)
+    logger.info("Permissions API routes registered (including ML endpoints)")
