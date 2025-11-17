@@ -10,16 +10,20 @@ The CLI-Agent permission system uses a **simplified Claude Code-style config-bas
 - **Transparent**: Explicit declarations, easy to audit
 - **Team-friendly**: Shareable config files, version controllable
 - **Minimal code**: 825 lines vs old 2,400 lines (66% reduction)
+- **ML-Enhanced (Optional)**: Autonomous classifier can auto-approve safe operations
+
+**NEW:** The system now supports optional **ML-based autonomous permissions** that reduce friction by intelligently auto-approving safe operations. See [AUTONOMOUS_PERMISSIONS.md](./AUTONOMOUS_PERMISSIONS.md) for details.
 
 ## Architecture
 
-The permission system consists of three main components:
+The permission system consists of five main components:
 
-### 1. Settings Manager (`core/permissions/settings_manager.py` - 331 lines)
+### 1. Settings Manager (`core/permissions/settings_manager.py` - 396 lines)
 - **Configuration Loading**: Loads `~/.cli-agent/settings.json`
 - **Permission Checking**: Simple 3-level precedence (deny → ask → allow)
 - **Pattern Matching**: Uses fnmatch for file paths and prefix matching for commands
 - **XML Parsing**: Extracts paths and commands from tool blocks
+- **ML Configuration**: Manages autonomous permission settings
 
 ### 2. Permission Prompt (`core/permissions/permission_prompt.py` - 384 lines)
 - **User Prompts**: Simple allow/deny/always prompts
@@ -30,6 +34,18 @@ The permission system consists of three main components:
 - **Tool Detection**: Recognizes common dev tools (linting, testing, git, etc.)
 - **Suggestions**: Provides suggested rules when tools are detected
 - **Help Text Only**: Does NOT automatically grant permissions
+
+### 4. Embedding Classifier (`core/permissions/embedding_classifier.py` - 460 lines)
+- **ML Classification**: Embedding-based safety scoring using Ollama
+- **Anchor Concepts**: 18 safe + 29 unsafe reference examples
+- **1D Scoring**: Cosine similarity-based safety score (-1 to +1)
+- **Threshold-based Decisions**: Auto-allow, ask, or neutral based on score
+
+### 5. Autonomous Permission (`core/permissions/autonomous_permission.py` - 310 lines)
+- **Orchestration Layer**: Combines static rules + ML classification
+- **Layer Precedence**: Deny → Allow → ML → User Prompt
+- **Fail-Safe Design**: ML errors fall back to user prompts
+- **Statistics Tracking**: Monitors ML performance and decision breakdown
 
 ## Configuration Format
 
