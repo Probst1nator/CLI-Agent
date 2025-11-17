@@ -1009,7 +1009,43 @@ def parse_cli_args() -> argparse.Namespace:
 
 # --- Eager setup of args ---
 # This is done before heavy imports to allow --help to work quickly.
-args = parse_cli_args()
+# Only parse CLI args when running as main script, not when imported as a module
+if __name__ == "__main__":
+    args = parse_cli_args()
+else:
+    # When imported as a module, create minimal args to prevent errors
+    args = argparse.Namespace(
+        help=False,
+        yolo=False,
+        c=False,
+        local=False,
+        message=[],
+        regenerate=False,
+        voice=False,
+        speak=False,
+        online_voice=False,
+        full_output_mode=False,
+        image=False,
+        online=False,
+        override=None,
+        router=None,
+        planner=None,
+        defaults=None,
+        gui=False,
+        api=False,
+        debug_chats=False,
+        private_remote_wake_detection=False,
+        debug=False,
+        clear_cache=None,
+        isolated=False,
+        exit=False,
+        list_tools=False,
+        enable=None,
+        disable=None,
+        read_only=False,
+        allow_write_path=None,
+        allowed_write_paths=[],
+    )
 
 # --- Handle Cache Clearing ---
 # Clear cache and exit if --clear-cache was specified

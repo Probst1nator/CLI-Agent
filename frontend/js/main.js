@@ -1627,10 +1627,8 @@ class VisualResponseApp {
                 // Reset TTS tracking for new conversation turn
                 this.lastSpokenText = null;
 
-                // Pause audio recording while agent generates response
-                if (this.audioManager && typeof this.audioManager.pauseRecording === 'function') {
-                    this.audioManager.pauseRecording();
-                }
+                // Don't pause recording here - let it continue listening
+                // Recording will only pause when TTS actually starts playing (in audio-manager.js)
 
                 if (!sendSuccess) {
                     throw new Error('Failed to send message via WebSocket');

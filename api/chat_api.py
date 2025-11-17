@@ -135,6 +135,24 @@ async def load_chat(request: Any) -> Any:
         g.chat = loaded_chat
         logger.info(f"Loaded chat {chat_id}, replacing current chat")
 
+        # Clear any pending permissions when switching chats
+        # This prevents stale permission responses from affecting new requests
+        if hasattr(g, 'permission_response_queue'):
+            try:
+                import asyncio
+                # Drain the queue to remove any stale permission responses
+                cleared_count = 0
+                while not g.permission_response_queue.empty():
+                    try:
+                        g.permission_response_queue.get_nowait()
+                        cleared_count += 1
+                    except asyncio.QueueEmpty:
+                        break
+                if cleared_count > 0:
+                    logger.info(f"Cleared {cleared_count} stale permission response(s) from queue (chat switch)")
+            except Exception as e:
+                logger.debug(f"Could not clear permission queue: {e}")
+
         # Convert to frontend format with type field
         frontend_chat = convert_chat_to_frontend_format(loaded_chat._to_dict())
 
@@ -182,20 +200,23 @@ async def new_chat(request: Any) -> Any:
             except Exception as e:
                 logger.warning(f"Failed to archive current chat: {e}")
 
-        # Cancel any pending permissions when switching chats
-        # This unblocks the permission prompt by sending a cancel signal
+        # Clear any pending permissions when switching chats
+        # This prevents stale permission responses from affecting new requests
         if hasattr(g, 'permission_response_queue'):
             try:
-                # Send cancel response to unblock any waiting permission prompt
-                g.permission_response_queue.put_nowait({
-                    'type': 'permission_response',
-                    'result': 'deny',
-                    'cancelled': True,
-                    'reason': 'Chat switched - permission request cancelled'
-                })
-                logger.info("Sent cancellation signal for pending permissions (chat switch)")
+                import asyncio
+                # Drain the queue to remove any stale permission responses
+                cleared_count = 0
+                while not g.permission_response_queue.empty():
+                    try:
+                        g.permission_response_queue.get_nowait()
+                        cleared_count += 1
+                    except asyncio.QueueEmpty:
+                        break
+                if cleared_count > 0:
+                    logger.info(f"Cleared {cleared_count} stale permission response(s) from queue (chat switch)")
             except Exception as e:
-                logger.debug(f"Could not send permission cancellation: {e}")
+                logger.debug(f"Could not clear permission queue: {e}")
 
         # Create new chat
         try:

@@ -51,6 +51,8 @@ class AudioStreamHandler:
         self.num_silent_chunks_to_stop = int(self.silence_duration * 10)
         self.printed_listening = False  # Track if we've printed the listening message
         self.paused = False  # Pause recording during agent response/TTS playback
+        self.resume_time = None  # Track when recording was resumed (for grace period)
+        self.grace_period = 0.4  # Ignore audio for 400ms after resume (acoustic echo clearance)
 
     def process_chunk(self, audio_chunk: np.ndarray) -> Optional[np.ndarray]:
         """
@@ -62,6 +64,14 @@ class AudioStreamHandler:
         # Skip processing if paused (agent responding or TTS playing)
         if self.paused:
             return None
+
+        # Grace period: ignore audio immediately after resume to avoid capturing acoustic echo
+        if self.resume_time and (time.time() - self.resume_time) < self.grace_period:
+            return None  # Silently ignore audio during grace period
+
+        # Clear resume time after grace period expires
+        if self.resume_time and (time.time() - self.resume_time) >= self.grace_period:
+            self.resume_time = None
 
         # Print initial listening message (like CLI mode)
         if not self.printed_listening:
@@ -128,8 +138,18 @@ class AudioStreamHandler:
         """Resume audio processing after agent response/TTS playback"""
         self.paused = False
         self.printed_listening = False  # Allow "Listening..." to print again
+
+        # Reset VAD state to avoid capturing acoustic echo/noise from TTS/beep
+        self.recording = False
+        self.audio_buffer = []
+        self.silent_chunks = 0
+        self.start_time = None
+
+        # Set grace period to ignore immediate acoustic echo
+        self.resume_time = time.time()
+
         print(f"<{colored('Recording', 'green')}> Resumed")
-        logger.debug("Audio stream resumed")
+        logger.debug(f"Audio stream resumed - VAD state reset, {int(self.grace_period * 1000)}ms grace period active")
 
 
 async def websocket_audio_stream(request: Any) -> Any:
@@ -217,9 +237,8 @@ async def websocket_audio_stream(request: Any) -> Any:
                                 # Print user reply message (like CLI mode)
                                 print(f"🎤 User replied: \"{text.strip()}\"")
 
-                                # Pause recording while agent generates response + TTS plays
-                                # Frontend will resume after TTS completes
-                                handler.pause()
+                                # Don't pause here - let recording continue
+                                # Frontend will pause only when TTS actually starts playing
 
                                 # Send transcription back to client
                                 await ws.send_json({

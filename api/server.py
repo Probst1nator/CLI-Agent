@@ -354,6 +354,7 @@ class VisualServer:
                 "img-src 'self' data: blob:",
                 "font-src 'self' data: https://cdn.jsdelivr.net",
                 "connect-src 'self' ws: wss:",
+                "media-src 'self' blob:",
                 "frame-src 'self'",
                 "object-src 'none'",
                 "base-uri 'self'",
