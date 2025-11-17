@@ -138,11 +138,20 @@ Always be helpful, accurate, and use tools when appropriate to accomplish tasks.
         while iteration < max_iterations:
             iteration += 1
 
-            # Get LLM response
+            # Get LLM response with streaming
             messages = self.chat.to_dict_list()
 
             try:
-                response = self.llm_router.generate_completion(messages, stream=False)
+                response_stream = self.llm_router.generate_completion(messages, stream=True)
+
+                # Stream and accumulate response
+                full_response = ""
+                for chunk in response_stream:
+                    print(chunk, end="", flush=True)
+                    full_response += chunk
+                print()  # Newline after streaming
+
+                response = full_response
             except Exception as e:
                 return f"Error calling LLM: {str(e)}"
 
