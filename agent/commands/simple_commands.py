@@ -653,11 +653,7 @@ class PermissionCommand(BaseCommand):
                     error_msg = f"Invalid float value for {key}: {value}"
                     print(colored(f"❌ {error_msg}", "red"))
                     return CommandResponse(result=CommandResult.ERROR, message=error_msg)
-            elif key == "enabled":
-                value = value.lower() in ["true", "1", "yes"]
-            elif key == "cache_embeddings":
-                value = value.lower() in ["true", "1", "yes"]
-            elif key == "log_classifications":
+            elif key == "enabled" or key == "cache_embeddings" or key == "log_classifications":
                 value = value.lower() in ["true", "1", "yes"]
 
             updates[key] = value
@@ -702,7 +698,7 @@ class PermissionCommand(BaseCommand):
                 print(colored("\nNo permissions checked yet in this session", "yellow"))
             else:
                 print(f"\nTotal Checks: {total}")
-                print(f"\nDecision Breakdown:")
+                print("\nDecision Breakdown:")
                 print(f"  Static Deny:     {stats.get('static_deny', 0):>4} ({100 * stats.get('static_deny', 0) / total:>5.1f}%)")
                 print(f"  Static Allow:    {stats.get('static_allow', 0):>4} ({100 * stats.get('static_allow', 0) / total:>5.1f}%)")
                 print(f"  ML Auto-Allow:   {stats.get('ml_auto_allow', 0):>4} ({100 * stats.get('ml_auto_allow', 0) / total:>5.1f}%)")
@@ -716,7 +712,7 @@ class PermissionCommand(BaseCommand):
             # Cache stats
             cache_stats = stats.get("cache_stats", {})
             if cache_stats:
-                print(f"\nEmbedding Cache:")
+                print("\nEmbedding Cache:")
                 print(f"  Cached embeddings: {cache_stats.get('cache_size', 0)}")
                 print(f"  Anchor concepts:   {cache_stats.get('anchor_count', 0)}")
 

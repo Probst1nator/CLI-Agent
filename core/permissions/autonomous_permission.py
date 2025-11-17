@@ -41,10 +41,10 @@ import logging
 from typing import Literal, Optional
 
 from .embedding_classifier import (
+    OLLAMA_AVAILABLE,
     EmbeddingClassifier,
     SafetyScore,
     tool_call_to_xml,
-    OLLAMA_AVAILABLE
 )
 from .settings_manager import SettingsManager
 

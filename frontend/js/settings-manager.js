@@ -229,10 +229,19 @@ class SettingsManager {
             else if (isAsked) currentState = 'ask';
             else if (isAllowed) currentState = 'allow';
 
+            // HTML escape the description to prevent HTML injection
+            const escapeHtml = (text) => {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            };
+            const truncatedDesc = tool.description.substring(0, 80) + (tool.description.length > 80 ? '...' : '');
+            const safeDescription = escapeHtml(truncatedDesc);
+
             return `
                 <div class="tool-permission-item" data-tool="${toolName}">
                     <div class="tool-name">${tool.displayName || tool.name}</div>
-                    <div class="tool-description">${tool.description.substring(0, 80)}${tool.description.length > 80 ? '...' : ''}</div>
+                    <div class="tool-description">${safeDescription}</div>
                     <div class="tool-permission-controls">
                         <label class="permission-radio">
                             <input type="radio" name="perm-${toolName}" value="allow" ${currentState === 'allow' ? 'checked' : ''}>
