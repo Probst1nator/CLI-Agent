@@ -110,7 +110,6 @@ Cross-cutting concerns and project-wide documentation:
 - **DEBUGGING_ENHANCEMENTS.md** - Debugging tools and techniques
 
 #### Deployment (`/docs/deployment/`)
-- **PUBLIC_SYNC.md** - Public repository sync workflow
 - **SELF_HOSTED_RUNNER_SETUP.md** - GitHub Actions self-hosted runners
 
 #### Archived & Experimental
