@@ -874,6 +874,10 @@ class AudioManager {
             // Stop any currently playing audio
             if (this.playingAudio) {
                 this.playingAudio.pause();
+                // Remove from DOM if it was added
+                if (this.playingAudio.parentNode) {
+                    this.playingAudio.parentNode.removeChild(this.playingAudio);
+                }
                 this.playingAudio = null;
             }
 
@@ -907,28 +911,78 @@ class AudioManager {
             const audioBlob = await response.blob();
             const audioUrl = URL.createObjectURL(audioBlob);
 
-            this.playingAudio = new Audio(audioUrl);
+            // Create audio element and add to DOM FIRST to work with Plasma Integration
+            // Plasma Integration intercepts detached Audio elements, causing issues with blob URLs
+            this.playingAudio = document.createElement('audio');
+            this.playingAudio.preload = 'auto';
+            this.playingAudio.volume = this.volume;
+            this.playingAudio.style.display = 'none';
+
+            // Add to DOM before setting src (prevents Plasma Integration interference)
+            document.body.appendChild(this.playingAudio);
 
             this.showTTSStatus('Speaking...');
 
-            this.playingAudio.volume = this.volume;
+            // Now set src after element is in DOM
+            this.playingAudio.src = audioUrl;
+
+            // Set up event handlers
+            let loadResolved = false;
+            const cleanupAudio = async () => {
+                URL.revokeObjectURL(audioUrl);
+                // Remove from DOM when done
+                if (this.playingAudio && this.playingAudio.parentNode) {
+                    this.playingAudio.parentNode.removeChild(this.playingAudio);
+                }
+                this.playingAudio = null;
+                this.isTTSActive = false;
+                this.hideTTSStatus();
+
+                // Play notification beep to signal ready for next input
+                // Wait for it to finish before resuming recording (prevents beep from being captured)
+                await this.playNotificationSound('listening');
+
+                // Resume recording after beep finishes
+                this.resumeRecording();
+            };
 
             this.playingAudio.onended = () => {
-                URL.revokeObjectURL(audioUrl);
-                this.playingAudio = null;
-                this.isTTSActive = false;
-                this.hideTTSStatus();
                 console.log('TTS playback finished');
+                cleanupAudio();
             };
 
-            this.playingAudio.onerror = (error) => {
-                console.error('Audio playback error:', error);
-                URL.revokeObjectURL(audioUrl);
-                this.playingAudio = null;
-                this.isTTSActive = false;
-                this.hideTTSStatus();
-                this.showError('Audio playback failed');
-            };
+            // Wait for audio to be ready before playing
+            await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    if (!loadResolved) {
+                        reject(new Error('Audio load timeout after 5s'));
+                    }
+                }, 5000);
+
+                this.playingAudio.oncanplaythrough = () => {
+                    if (!loadResolved) {
+                        loadResolved = true;
+                        clearTimeout(timeout);
+                        resolve();
+                    }
+                };
+
+                this.playingAudio.onerror = (error) => {
+                    if (!loadResolved) {
+                        loadResolved = true;
+                        clearTimeout(timeout);
+                        console.error('Audio load error:', error);
+                        cleanupAudio();
+                        this.showError('Audio playback failed');
+                        reject(new Error('Audio load failed'));
+                    }
+                };
+
+                this.playingAudio.load();
+            });
+
+            // Pause recording when TTS actually starts playing
+            this.pauseRecording();
 
             await this.playingAudio.play();
             console.log('TTS playback started');
@@ -938,6 +992,11 @@ class AudioManager {
             this.isTTSActive = false;
             this.hideTTSStatus();
             this.showError('Text-to-speech failed: ' + error.message);
+
+            // Play notification and resume recording even if TTS failed
+            await this.playNotificationSound('listening');
+            this.resumeRecording();
+
             throw error;
         }
     }
@@ -1095,6 +1154,10 @@ class AudioManager {
             // Stop any currently playing audio
             if (this.playingAudio) {
                 this.playingAudio.pause();
+                // Remove from DOM if it was added
+                if (this.playingAudio.parentNode) {
+                    this.playingAudio.parentNode.removeChild(this.playingAudio);
+                }
                 this.playingAudio = null;
             }
 
@@ -1148,6 +1211,10 @@ class AudioManager {
         // Stop current playback
         if (this.playingAudio) {
             this.playingAudio.pause();
+            // Remove from DOM if it was added
+            if (this.playingAudio.parentNode) {
+                this.playingAudio.parentNode.removeChild(this.playingAudio);
+            }
             this.playingAudio = null;
             console.log('Audio stopped');
         }
@@ -1280,6 +1347,10 @@ class AudioManager {
 
         if (this.playingAudio) {
             this.playingAudio.pause();
+            // Remove from DOM if it was added
+            if (this.playingAudio.parentNode) {
+                this.playingAudio.parentNode.removeChild(this.playingAudio);
+            }
             this.playingAudio = null;
         }
 
@@ -1342,53 +1413,64 @@ class AudioManager {
     }
 
     playNotificationSound(type = 'listening') {
-        try {
-            // Ensure audio context is initialized
-            if (!this.notificationAudioContext) {
-                console.warn('[AudioManager] Audio context not initialized - call initNotificationAudio() first');
-                return;
+        return new Promise((resolve) => {
+            try {
+                // Ensure audio context is initialized
+                if (!this.notificationAudioContext) {
+                    console.warn('[AudioManager] Audio context not initialized - call initNotificationAudio() first');
+                    resolve();
+                    return;
+                }
+
+                // Resume if suspended (browser autoplay policy)
+                if (this.notificationAudioContext.state === 'suspended') {
+                    this.notificationAudioContext.resume();
+                }
+
+                const audioContext = this.notificationAudioContext;
+
+                // Create oscillator for tone generation
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                // Connect nodes
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                const duration = 0.2; // 200ms
+
+                // Configure sound based on type
+                if (type === 'listening') {
+                    // Ascending two-tone chime for "listening" state
+                    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                    oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                } else if (type === 'processing') {
+                    // Descending two-tone chime for "processing" state
+                    oscillator.frequency.setValueAtTime(1000, audioContext.currentTime);
+                    oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                }
+
+                // Resolve promise when sound finishes + 100ms buffer for acoustic echo
+                oscillator.onended = () => {
+                    setTimeout(resolve, 100);
+                };
+
+                // Play the tone
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + duration);
+
+                console.log(`[AudioManager] Played ${type} notification sound`);
+
+            } catch (error) {
+                console.error('[AudioManager] Failed to play notification sound:', error);
+                // Non-critical error - resolve anyway
+                resolve();
             }
-
-            // Resume if suspended (browser autoplay policy)
-            if (this.notificationAudioContext.state === 'suspended') {
-                this.notificationAudioContext.resume();
-            }
-
-            const audioContext = this.notificationAudioContext;
-
-            // Create oscillator for tone generation
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-
-            // Connect nodes
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-
-            // Configure sound based on type
-            if (type === 'listening') {
-                // Ascending two-tone chime for "listening" state
-                oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-                oscillator.frequency.setValueAtTime(1000, audioContext.currentTime + 0.1);
-                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-            } else if (type === 'processing') {
-                // Descending two-tone chime for "processing" state
-                oscillator.frequency.setValueAtTime(1000, audioContext.currentTime);
-                oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
-                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-            }
-
-            // Play the tone
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.2);
-
-            console.log(`[AudioManager] Played ${type} notification sound`);
-
-        } catch (error) {
-            console.error('[AudioManager] Failed to play notification sound:', error);
-            // Non-critical error - don't throw
-        }
+        });
     }
 }
 

@@ -52,6 +52,19 @@ if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE") -gt 10485760 ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Log rotated (previous log saved to .old)" >> "$LOG_FILE"
 fi
 
+# --- Load .env file for API keys ---
+ENV_FILE="$CLI_AGENT_DIR/.env"
+if [ -f "$ENV_FILE" ]; then
+    log_message "${BLUE}Loading environment from $ENV_FILE${NC}"
+    # Export variables from .env file (skip comments and empty lines)
+    set -a  # Automatically export all variables
+    source "$ENV_FILE"
+    set +a  # Turn off auto-export
+else
+    log_message "${YELLOW}Warning: .env file not found at $ENV_FILE${NC}"
+    log_message "${YELLOW}API keys may not be available for LLM generation${NC}"
+fi
+
 # --- Prerequisite check for Python (no longer need shuf) ---
 if ! command -v python3 &> /dev/null; then
     log_message "${RED}Error: python3 is required but was not found.${NC}"
