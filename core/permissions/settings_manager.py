@@ -70,6 +70,15 @@ class SettingsManager:
                 "allow": [],
                 "deny": [],
                 "ask": []
+            },
+            "autonomous_permissions": {
+                "enabled": False,
+                "model": "embeddinggemma:latest",
+                "threshold_allow": 0.01,
+                "threshold_deny": -0.01,
+                "fallback_on_error": "ask",
+                "cache_embeddings": True,
+                "log_classifications": True
             }
         }
 
@@ -317,6 +326,74 @@ class SettingsManager:
             "deny": [],
             "ask": []
         }
+
+    def get_ml_config(self) -> dict:
+        """
+        Get ML configuration from settings.
+
+        Returns:
+            Dictionary with ML configuration keys:
+                - enabled: Whether ML is enabled
+                - model: Embedding model name
+                - threshold_allow: Auto-allow threshold
+                - threshold_deny: Ask-user threshold
+                - fallback_on_error: What to do if ML fails
+                - cache_embeddings: Whether to cache embeddings
+                - log_classifications: Whether to log ML decisions
+        """
+        default_config = {
+            "enabled": False,
+            "model": "embeddinggemma:latest",
+            "threshold_allow": 0.01,
+            "threshold_deny": -0.01,
+            "fallback_on_error": "ask",
+            "cache_embeddings": True,
+            "log_classifications": True
+        }
+
+        # Merge with saved settings (if any)
+        saved_config = self.settings.get("autonomous_permissions", {})
+        return {**default_config, **saved_config}
+
+    def set_ml_enabled(self, enabled: bool) -> bool:
+        """
+        Enable or disable ML permissions.
+
+        Args:
+            enabled: True to enable, False to disable
+
+        Returns:
+            True if saved successfully
+        """
+        if "autonomous_permissions" not in self.settings:
+            self.settings["autonomous_permissions"] = self.get_ml_config()
+
+        self.settings["autonomous_permissions"]["enabled"] = enabled
+        return self.save_settings()
+
+    def update_ml_config(self, **kwargs) -> bool:
+        """
+        Update ML configuration parameters.
+
+        Args:
+            **kwargs: ML config keys to update (enabled, model, thresholds, etc.)
+
+        Returns:
+            True if saved successfully
+
+        Examples:
+            >>> manager.update_ml_config(threshold_allow=0.02)
+            >>> manager.update_ml_config(model="embeddinggemma:latest", enabled=True)
+        """
+        if "autonomous_permissions" not in self.settings:
+            self.settings["autonomous_permissions"] = self.get_ml_config()
+
+        # Update only provided keys
+        for key, value in kwargs.items():
+            if key in self.settings["autonomous_permissions"]:
+                self.settings["autonomous_permissions"][key] = value
+
+        return self.save_settings()
 
 
 def extract_path_from_xml(xml_content: str, tool_name: str) -> Optional[str]:
