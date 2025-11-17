@@ -169,8 +169,6 @@ Always be helpful, accurate, and use tools when appropriate to accomplish tasks.
             tool_results = []
 
             for tool_name, content, full_match in tool_calls:
-                print(f"\n🔧 Executing: {tool_name}")
-
                 result = self._execute_tool(tool_name, content)
 
                 if result is not None:
