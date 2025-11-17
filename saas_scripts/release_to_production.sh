@@ -59,15 +59,15 @@ log_success "Release commit created:"
 git log -1 --oneline
 
 # Ask if user wants to push
-echo -e "\n${YELLOW}Push to git_public/production? (y/n):${NC}"
+echo -e "\n${YELLOW}Push to origin/production? (y/n):${NC}"
 read -r PUSH_CONFIRM
 
 if [ "$PUSH_CONFIRM" = "y" ] || [ "$PUSH_CONFIRM" = "Y" ]; then
-    log_info "Pushing to git_public/production..."
-    git push git_public production --force-with-lease || die "Failed to push to git_public/production"
-    log_success "Successfully pushed to git_public/production"
+    log_info "Pushing to origin/production..."
+    git push origin production --force-with-lease || die "Failed to push to origin/production"
+    log_success "Successfully pushed to origin/production"
 else
-    log_warning "Skipped push. Run 'git push git_public production --force-with-lease' manually when ready."
+    log_warning "Skipped push. Run 'git push origin production --force-with-lease' manually when ready."
 fi
 
 # Switch back to main
