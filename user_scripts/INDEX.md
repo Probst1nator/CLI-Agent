@@ -17,7 +17,6 @@
 | `setup_bash_alias.sh` | Shell script: setup bash alias |
 | `setup_cli_agent.sh` | Shell script: setup cli agent |
 | `setup_desktop_entry.sh` | Shell script: setup desktop entry |
-| `sync_public_repo.py` | Python module: sync public repo |
 | `view_logs.sh` | Shell script: view logs |
 
 ---

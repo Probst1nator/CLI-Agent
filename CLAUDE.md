@@ -301,28 +301,12 @@ python main.py --isolated --gui  # Subsequent runs instant (~2-5 sec)
 7. **Session audit** GDPR-compliant (content hashing, not full text)
 8. **Don't proactively fix linter warnings** unless requested
 
-## Public Repository Sync
-
-Public version at https://github.com/Probst1nator/CLI-Agent (safe tools only).
-
-**Workflow:** `main` → PR to `public-sync` → filter → `git_public/main`
-
-```bash
-gh pr create --base public-sync --head main              # Create review PR
-git checkout public-sync && git pull                     # After merge
-python user_scripts/sync_public_repo.py --prepare        # Filter
-python user_scripts/sync_public_repo.py --push           # Release
-```
-
-See `docs/deployment/PUBLIC_SYNC.md` for details.
-
 ## Documentation
 
 - `docs/LOGGING.md` - Comprehensive logging system
 - `docs/ISOLATED_MODE.md` - Docker isolation
 - `docs/VISUALRESPONSE_ARCHITECTURE.md` - Web backend/frontend
 - `docs/INFRASTRUCTURE_STATUS.md` - Deployment options
-- `docs/deployment/PUBLIC_SYNC.md` - Public sync workflow
 - `tools/CLAUDE.md` - Tool implementation guide
 - `INDEX.md` - Complete file index
 - `README.md` - Installation and usage

@@ -344,7 +344,6 @@ This minimal agent is part of the CLI-Agent project.
 
 ## Related
 
-- **Full CLI-Agent**: https://github.com/Probst1nator/CLI-Agent
 - **Google AI (Gemini)**: https://ai.google.dev/
 - **Ollama**: https://ollama.ai/
 - **Anthropic API**: https://docs.anthropic.com/
