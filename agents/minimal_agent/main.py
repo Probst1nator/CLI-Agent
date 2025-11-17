@@ -219,7 +219,7 @@ Always be helpful, accurate, and use tools when appropriate to accomplish tasks.
                 # Process the message
                 print("\n🤖 Agent: ", end="", flush=True)
                 response = self.process_message(user_input)
-                print(response)
+                # print(response)
 
             except KeyboardInterrupt:
                 print("\n\nGoodbye!")
