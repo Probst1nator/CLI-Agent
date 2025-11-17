@@ -153,6 +153,46 @@ async def _try_gui_permission_prompt(
         else:
             args_display = f"{tool_name}"
 
+        # Get ML classification if enabled
+        ml_score = None
+        ml_confidence = 0.0
+        ml_decision = None
+        ml_reason = None
+        ml_enabled = False
+
+        try:
+            ml_config = settings_manager.get_ml_config()
+            ml_enabled = ml_config.get("enabled", False)
+
+            if ml_enabled:
+                from core.permissions.autonomous_permission import AutonomousPermission
+
+                # Create autonomous permission instance
+                autonomous = AutonomousPermission(
+                    settings_manager=settings_manager,
+                    ml_enabled=True,
+                    ml_model=ml_config.get("model", "embeddinggemma:latest"),
+                    threshold_allow=ml_config.get("threshold_allow", 0.01),
+                    threshold_deny=ml_config.get("threshold_deny", -0.01)
+                )
+
+                # Get ML classification
+                decision, ml_reason, confidence, score = await autonomous.check_permission(
+                    tool_name=tool_name,
+                    file_path=file_path,
+                    command=command,
+                    xml_content=xml_content
+                )
+
+                ml_score = score
+                ml_confidence = confidence
+                ml_decision = decision
+
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"ML classification failed in permission prompt: {e}")
+
         # Send permission request to GUI
         permission_payload = {
             "id": f"permission-{int(time.time() * 1000)}",
@@ -169,7 +209,13 @@ async def _try_gui_permission_prompt(
                 "rule_options": [
                     {"description": desc, "rule": rule}
                     for desc, rule in rule_options
-                ]
+                ],
+                # ML classification data
+                "ml_enabled": ml_enabled,
+                "ml_score": ml_score,
+                "ml_confidence": ml_confidence,
+                "ml_decision": ml_decision,
+                "ml_reason": ml_reason
             }
         }
 

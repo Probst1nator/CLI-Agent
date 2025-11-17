@@ -333,6 +333,78 @@ class WebSocketManager {
                 <p><strong>Action:</strong> ${permissionData.action_description}</p>
         `;
 
+        // ML Score Indicator
+        if (permissionData.ml_enabled && permissionData.ml_score !== null && permissionData.ml_score !== undefined) {
+            const mlScore = permissionData.ml_score;
+            const mlConfidence = permissionData.ml_confidence || 0;
+
+            // Determine color, icon, and text based on score
+            let scoreColor, scoreIcon, scoreText, confidencePercent;
+            if (mlScore > 0.01) {
+                scoreColor = '#10b981';  // green
+                scoreIcon = '✅';
+                scoreText = 'SAFE';
+                confidencePercent = Math.min(mlConfidence * 100, 100);
+            } else if (mlScore < -0.01) {
+                scoreColor = '#ef4444';  // red
+                scoreIcon = '⚠️';
+                scoreText = 'RISKY';
+                confidencePercent = Math.min(mlConfidence * 100, 100);
+            } else {
+                scoreColor = '#f59e0b';  // amber
+                scoreIcon = '❓';
+                scoreText = 'UNCERTAIN';
+                confidencePercent = 50;
+            }
+
+            // Calculate position on score bar (map -1 to +1 → 0% to 100%)
+            const scorePosition = ((mlScore + 1) / 2) * 100;
+
+            contentHTML += `
+                <div class="ml-score-container">
+                    <div class="ml-score-header">
+                        <span class="ml-score-label">🤖 ML Safety Score:</span>
+                        <span class="ml-score-value" style="color: ${scoreColor}">
+                            ${scoreIcon} ${scoreText} (${mlScore.toFixed(3)})
+                        </span>
+                    </div>
+                    <div class="ml-score-bar-container">
+                        <div class="ml-score-bar">
+                            <div class="ml-score-indicator" style="left: ${scorePosition}%; background-color: ${scoreColor}"></div>
+                        </div>
+                        <div class="ml-score-markers">
+                            <span class="ml-score-marker" style="left: 0%">-1.0</span>
+                            <span class="ml-score-marker" style="left: 25%">-0.5</span>
+                            <span class="ml-score-marker" style="left: 50%">0</span>
+                            <span class="ml-score-marker" style="left: 75%">+0.5</span>
+                            <span class="ml-score-marker" style="left: 100%">+1.0</span>
+                        </div>
+                    </div>
+                    <div class="ml-confidence-container">
+                        <span class="ml-confidence-label">Confidence:</span>
+                        <div class="ml-confidence-bar">
+                            <div class="ml-confidence-fill" style="width: ${confidencePercent}%; background-color: ${scoreColor}"></div>
+                        </div>
+                        <span class="ml-confidence-value">${confidencePercent.toFixed(0)}%</span>
+                    </div>
+                    ${permissionData.ml_reason ? `
+                    <div class="ml-reason">
+                        <details>
+                            <summary>Why this score?</summary>
+                            <p>${this.escapeHtml(permissionData.ml_reason)}</p>
+                        </details>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+        } else if (permissionData.ml_enabled) {
+            contentHTML += `
+                <div class="ml-score-container ml-disabled">
+                    <p>⚙️ ML classifier enabled but no score available</p>
+                </div>
+            `;
+        }
+
         if (permissionData.file_path) {
             contentHTML += `<p><strong>File:</strong> ${permissionData.file_path}</p>`;
         }

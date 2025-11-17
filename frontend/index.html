@@ -9,6 +9,8 @@
     <link rel="stylesheet" href="/css/main.css">
     <!-- Component Styles -->
     <link rel="stylesheet" href="/css/components/loading-tools.css">
+    <link rel="stylesheet" href="/css/components/ml-score.css">
+    <link rel="stylesheet" href="/css/components/ml-settings.css">
 
     <!-- Local JavaScript Libraries -->
     <script src="/libs/jquery.min.js"></script>
@@ -252,6 +254,99 @@
                     </div>
                 </section>
 
+                <!-- ML Autonomous Permissions Section -->
+                <section class="settings-section ml-config-section">
+                    <h3>🤖 ML Autonomous Permissions</h3>
+                    <p class="settings-help-text">
+                        Machine learning-based classifier that auto-approves safe operations
+                        and flags risky ones. Reduce friction while maintaining security.
+                    </p>
+
+                    <!-- Enable/Disable Toggle -->
+                    <div class="ml-toggle-container">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="ml-enabled-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span class="toggle-label">
+                            Enable ML Autonomous Permissions
+                        </span>
+                        <span id="ml-status-indicator" class="ml-status">Disabled</span>
+                    </div>
+
+                    <!-- ML Configuration (shown when enabled) -->
+                    <div id="ml-config-details" class="ml-config-details" style="display: none;">
+                        <!-- Model Selection -->
+                        <div class="config-row">
+                            <label for="ml-model-select">Embedding Model:</label>
+                            <select id="ml-model-select">
+                                <option value="embeddinggemma:latest">embeddinggemma:latest (recommended)</option>
+                                <option value="embeddinggemma:2b">embeddinggemma:2b (faster, less accurate)</option>
+                                <option value="mxbai-embed-large">mxbai-embed-large (alternative)</option>
+                            </select>
+                        </div>
+
+                        <!-- Threshold Sliders -->
+                        <div class="config-row threshold-config">
+                            <label for="threshold-allow-slider">Auto-Allow Threshold:</label>
+                            <div class="slider-container">
+                                <input type="range" id="threshold-allow-slider"
+                                       min="0.001" max="0.05" step="0.001" value="0.01">
+                                <span id="threshold-allow-value" class="threshold-value">+0.010</span>
+                            </div>
+                            <p class="config-hint">
+                                Scores above this are auto-approved.
+                                Lower = more auto-approvals (less strict)
+                            </p>
+                        </div>
+
+                        <div class="config-row threshold-config">
+                            <label for="threshold-deny-slider">Ask-User Threshold:</label>
+                            <div class="slider-container">
+                                <input type="range" id="threshold-deny-slider"
+                                       min="-0.05" max="-0.001" step="0.001" value="-0.01">
+                                <span id="threshold-deny-value" class="threshold-value">-0.010</span>
+                            </div>
+                            <p class="config-hint">
+                                Scores below this prompt with warning.
+                                More negative = fewer warnings (less strict)
+                            </p>
+                        </div>
+
+                        <!-- Live Preview -->
+                        <div class="threshold-preview">
+                            <h4>Decision Zones Preview</h4>
+                            <div class="threshold-preview-bar">
+                                <div class="preview-zone ask" id="preview-ask-zone">
+                                    <span class="zone-label">ASK</span>
+                                </div>
+                                <div class="preview-zone neutral" id="preview-neutral-zone">
+                                    <span class="zone-label">NEUTRAL</span>
+                                </div>
+                                <div class="preview-zone auto-allow" id="preview-allow-zone">
+                                    <span class="zone-label">AUTO-ALLOW</span>
+                                </div>
+                            </div>
+                            <div class="preview-labels">
+                                <span>-1.0 (unsafe)</span>
+                                <span>0.0</span>
+                                <span>+1.0 (safe)</span>
+                            </div>
+                        </div>
+
+                        <!-- Statistics -->
+                        <div class="ml-stats-container">
+                            <h4>ML Performance Statistics</h4>
+                            <button id="refresh-ml-stats" class="settings-action-btn">
+                                🔄 Refresh Stats
+                            </button>
+                            <div id="ml-stats-display" class="ml-stats-display">
+                                <p class="loading">Loading statistics...</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 <!-- Advanced Pattern Editor Section -->
                 <section class="settings-section">
                     <h3>⚙️ Advanced Pattern Rules</h3>
@@ -406,6 +501,7 @@
     <script src="/js/chat-history.js"></script>
     <script src="/js/status-display.js"></script>
     <script src="/js/settings-manager.js"></script>
+    <script src="/js/ml-settings-manager.js"></script>
     <script src="/js/todos-manager.js"></script>
     <script src="/js/main.js"></script>
 </body>
