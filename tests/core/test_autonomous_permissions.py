@@ -23,31 +23,29 @@ Test Structure:
         - Settings persistence
 """
 
-import sys
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
-import json
 import os
+import sys
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
 
 # Setup test imports
 test_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(test_root))
 
 from shared.path_resolver import setup_cli_agent_imports
+
 setup_cli_agent_imports()
 
 import pytest
-import numpy as np
 
-from core.permissions.settings_manager import SettingsManager
+from core.permissions.autonomous_permission import AutonomousPermission
 from core.permissions.embedding_classifier import (
+    OLLAMA_AVAILABLE,
     EmbeddingClassifier,
     tool_call_to_xml,
-    OLLAMA_AVAILABLE
 )
-from core.permissions.autonomous_permission import AutonomousPermission
-
+from core.permissions.settings_manager import SettingsManager
 
 # ============================================================================
 # EmbeddingClassifier Tests
