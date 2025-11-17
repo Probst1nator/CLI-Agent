@@ -5,6 +5,8 @@ Tool to read file contents with line number support.
 import os
 import re
 
+import chardet
+
 
 class readfile:
     """Read the contents of a specified file."""
@@ -21,13 +23,12 @@ class readfile:
         return {
             "name": "readfile",
             "description": (
-                "Read text files with line numbers. Supports line ranges for large files. "
-                "Optional <encoding> for non-UTF8 files (utf-8, latin-1, ascii, etc.)."
+                "Read text files with line numbers. Automatically detects file encoding. "
+                "Supports line ranges for large files. Optional <encoding> override rarely needed."
             ),
             "example": (
                 "<readfile>./src/main.py</readfile>\n"
-                "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>\n"
-                "<readfile><filepath>./legacy.txt</filepath><encoding>latin-1</encoding></readfile>"
+                "<readfile><filepath>./app.js</filepath><lines>50-75</lines></readfile>"
             )
         }
 
@@ -55,6 +56,42 @@ class readfile:
             # Single line
             line_num = int(line_spec)
             return (line_num, line_num)
+
+    @staticmethod
+    def _auto_detect_encoding(file_path: str, explicit_encoding: str = None) -> tuple:
+        """Auto-detect file encoding with fallback strategy.
+
+        Returns:
+            tuple: (encoding_to_use, debug_message)
+        """
+        # If encoding explicitly specified, use it
+        if explicit_encoding:
+            return (explicit_encoding, f"Using explicit encoding: {explicit_encoding}")
+
+        # Try UTF-8 first (most common, fastest)
+        try:
+            with open(file_path, encoding='utf-8') as f:
+                f.read()
+            return ('utf-8', "Using UTF-8 (successful)")
+        except UnicodeDecodeError:
+            pass
+
+        # Read file as binary for detection
+        with open(file_path, 'rb') as f:
+            raw_data = f.read()
+
+        # Auto-detect encoding
+        detected = chardet.detect(raw_data)
+        detected_encoding = detected.get('encoding', 'latin-1')
+        confidence = detected.get('confidence', 0.0)
+
+        # Use detected encoding if confident, otherwise fall back to latin-1
+        if confidence > 0.7 and detected_encoding:
+            debug_msg = f"Auto-detected: {detected_encoding} (confidence: {confidence:.2f})"
+            return (detected_encoding, debug_msg)
+        else:
+            debug_msg = f"Low confidence detection ({confidence:.2f}), using latin-1 fallback"
+            return ('latin-1', debug_msg)
 
     @staticmethod
     def _extract_lines(content: str, start_line: int, end_line: int = None) -> str:
@@ -105,12 +142,12 @@ class readfile:
                 # XML format
                 filepath = filepath_match.group(1).strip()
                 line_spec = lines_match.group(1).strip() if lines_match else None
-                file_encoding = encoding_match.group(1).strip() if encoding_match else 'utf-8'
+                explicit_encoding = encoding_match.group(1).strip() if encoding_match else None
             else:
                 # Simple format - just filepath
                 filepath = content.strip()
                 line_spec = None
-                file_encoding = 'utf-8'
+                explicit_encoding = None
 
             if not filepath:
                 return "Error: No filepath provided."
@@ -121,27 +158,15 @@ class readfile:
             if not os.path.isfile(full_path):
                 return f"Error: File not found at '{full_path}'"
 
-            # Attempt to read the file with specified encoding
+            # Auto-detect encoding or use explicit encoding
+            file_encoding, encoding_debug = readfile._auto_detect_encoding(full_path, explicit_encoding)
+
+            # Read the file with detected/specified encoding
             try:
                 with open(full_path, encoding=file_encoding, errors='replace') as f:
                     file_content = f.read()
-            except (UnicodeDecodeError, LookupError) as e:
-                # Try fallback encodings
-                if file_encoding != 'utf-8':
-                    try:
-                        with open(full_path, encoding='utf-8', errors='replace') as f:
-                            file_content = f.read()
-                    except Exception:
-                        return f"Error: Could not read file with encoding '{file_encoding}' or UTF-8 fallback. Reason: {e}"
-                else:
-                    # Try latin-1 as last resort
-                    try:
-                        with open(full_path, encoding='latin-1') as f:
-                            file_content = f.read()
-                    except Exception as read_error:
-                        return f"Error: Could not read file '{full_path}'. Tried UTF-8 and Latin-1. Reason: {read_error}"
             except Exception as read_error:
-                return f"Error: Could not read file '{full_path}'. Reason: {read_error}"
+                return f"Error: Could not read file '{full_path}' with encoding '{file_encoding}'. Reason: {read_error}"
 
             # Handle line-indexed reading if line_spec is provided
             if line_spec:

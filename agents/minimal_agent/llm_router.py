@@ -4,11 +4,28 @@ Minimal LLM router supporting Anthropic (Claude), Google (Gemini), and Ollama.
 """
 import os
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Optional
 
 import anthropic
 import google.generativeai as genai
 import ollama
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    """Structured model specification with provider and model key."""
+    provider: str  # "anthropic", "google", "ollama"
+    model_key: str  # The actual model identifier
+
+
+# Model fallback chain - tried in sequence, also serves as registry
+FALLBACK_MODELS: list[ModelSpec] = [
+    ModelSpec("google", "gemini-flash-lite-latest"),
+    ModelSpec("google", "gemini-flash-latest"),
+    ModelSpec("ollama", "qwen3:1.7b"),
+    ModelSpec("anthropic", "claude-4-5-haiku"),
+]
 
 
 class LLMRouter:
@@ -38,22 +55,27 @@ class LLMRouter:
         if self.anthropic_key:
             self.anthropic_client = anthropic.Anthropic(api_key=self.anthropic_key)
 
-        # Default model - Gemini Flash Latest (Google)
-        self.default_model = os.getenv("DEFAULT_MODEL", "gemini-flash-latest")
+    def _get_model_spec(self, model: str) -> ModelSpec:
+        """Look up a model string in the fallback models list.
 
-    def _is_google_model(self, model: str) -> bool:
-        """Check if model is a Google (Gemini) model."""
-        return model.startswith("gemini")
+        Args:
+            model: Model string (e.g., "claude-4-5-haiku", "gemini-flash-latest")
 
-    def _is_ollama_model(self, model: str) -> bool:
-        """Check if model is an Ollama model."""
-        # Ollama supports various models - common ones include llama, mistral, codellama, etc.
-        ollama_prefixes = ["llama", "mistral", "codellama", "phi", "mixtral", "vicuna", "orca"]
-        return any(model.startswith(prefix) for prefix in ollama_prefixes)
+        Returns:
+            ModelSpec with provider and model_key
 
-    def _is_anthropic_model(self, model: str) -> bool:
-        """Check if model is an Anthropic model."""
-        return model.startswith("claude")
+        Raises:
+            ValueError: If model is not in the fallback models list
+        """
+        for model_spec in FALLBACK_MODELS:
+            if model_spec.model_key == model:
+                return model_spec
+
+        available = ", ".join(m.model_key for m in FALLBACK_MODELS)
+        raise ValueError(
+            f"Unknown model: {model}. "
+            f"Available models: {available}"
+        )
 
     def generate_completion(
         self,
@@ -64,11 +86,11 @@ class LLMRouter:
         stream: bool = False
     ) -> str | Iterator[str]:
         """
-        Generate a completion using the specified model.
+        Generate a completion using the specified model or fallback chain.
 
         Args:
             messages: List of message dicts with 'role' and 'content'
-            model: Model to use (defaults to DEFAULT_MODEL env var)
+            model: Model to use (looks up in KNOWN_MODELS), or None to use fallback chain
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
             stream: Whether to stream the response
@@ -76,18 +98,50 @@ class LLMRouter:
         Returns:
             Complete response string, or iterator of response chunks if streaming
         """
-        if model is None:
-            model = self.default_model
-
-        # Route to appropriate provider (order: Google -> Ollama -> Anthropic)
-        if self._is_google_model(model):
-            return self._call_google(messages, model, max_tokens, temperature, stream)
-        elif self._is_ollama_model(model):
-            return self._call_ollama(messages, model, max_tokens, temperature, stream)
-        elif self._is_anthropic_model(model):
-            return self._call_anthropic(messages, model, max_tokens, temperature, stream)
+        # Determine which model(s) to try
+        if model is not None:
+            # Use specified model
+            models_to_try = [self._get_model_spec(model)]
         else:
-            raise ValueError(f"Unsupported model: {model}")
+            # Use fallback chain
+            models_to_try = FALLBACK_MODELS
+
+        # Try models in sequence until one succeeds
+        last_error = None
+        for model_spec in models_to_try:
+            try:
+                # Check if provider is available
+                if not self._is_provider_available(model_spec.provider):
+                    continue
+
+                # Route to appropriate provider
+                if model_spec.provider == "google":
+                    return self._call_google(messages, model_spec.model_key, max_tokens, temperature, stream)
+                elif model_spec.provider == "ollama":
+                    return self._call_ollama(messages, model_spec.model_key, max_tokens, temperature, stream)
+                elif model_spec.provider == "anthropic":
+                    return self._call_anthropic(messages, model_spec.model_key, max_tokens, temperature, stream)
+                else:
+                    raise ValueError(f"Unsupported provider: {model_spec.provider}")
+            except Exception as e:
+                last_error = e
+                continue
+
+        # All models failed
+        if last_error:
+            raise RuntimeError(f"All models failed. Last error: {last_error}")
+        else:
+            raise RuntimeError("No models available (all providers unconfigured)")
+
+    def _is_provider_available(self, provider: str) -> bool:
+        """Check if a provider is configured and available."""
+        if provider == "google":
+            return self.google_configured
+        elif provider == "ollama":
+            return self.ollama_available
+        elif provider == "anthropic":
+            return self.anthropic_client is not None
+        return False
 
     def _call_anthropic(
         self,
@@ -186,6 +240,29 @@ class LLMRouter:
         else:
             # Non-streaming response
             response = model_instance.generate_content(gemini_messages)
+
+            # Check if response was blocked or has no valid parts
+            if not response.candidates:
+                raise ValueError("Google API returned no candidates (likely blocked by safety filters)")
+
+            candidate = response.candidates[0]
+
+            # Check finish reason
+            # 1 = SAFETY, 2 = RECITATION, 3 = OTHER
+            if candidate.finish_reason == 1:
+                raise ValueError(
+                    "Response blocked by Google's safety filters. "
+                    "Try rephrasing your request or use a different model."
+                )
+            elif candidate.finish_reason == 2:
+                raise ValueError("Response blocked due to recitation concerns")
+            elif candidate.finish_reason not in (0, None):  # 0 or None = success
+                raise ValueError(f"Response generation stopped (finish_reason={candidate.finish_reason})")
+
+            # Safely access text
+            if not candidate.content or not candidate.content.parts:
+                raise ValueError("Google API returned empty response")
+
             return response.text
 
     def _call_ollama(
