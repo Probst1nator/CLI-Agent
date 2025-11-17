@@ -35,21 +35,22 @@ Tool Call → Layer 1: Static Deny Rules → BLOCK (highest priority)
 - Auto-allow rate: ~57% of safe operations
 - Speed: 10-100ms (cached/uncached)
 
-### Frontend Implementation (Commit 3 - Phase 1)
+### Frontend Implementation (Commits 3-4 - Phase 1 & 2)
 
-**ML Score Visualization:**
-- Real-time safety scores in permission prompts
+**Phase 1: ML Score Visualization (Commit 3)**
+
+Real-time safety scores in permission prompts:
 - Color-coded indicators (🟢 safe / 🟡 uncertain / 🔴 risky)
 - Confidence meter showing ML certainty
 - Expandable "Why this score?" explanations
 
-**Changes:**
+Files changed:
 - `core/permissions/permission_prompt.py` - Enriched WebSocket payload with ML data
 - `frontend/js/websocket.js` - Enhanced permission request UI
 - `frontend/css/components/ml-score.css` - Complete styling (new file)
 - `frontend/index.html` - Linked ML score CSS
 
-**User Experience:**
+User Experience:
 ```
 🔐 PERMISSION REQUIRED
 Execute bash command: npm install
@@ -61,6 +62,46 @@ Confidence: ████████░░ 85%
 Why this score? ▼
   ML classifier analyzed this as a safe package
   management operation with high confidence.
+```
+
+**Phase 2: ML Configuration Panel (Commit 4)**
+
+Complete configuration UI in settings panel:
+- Enable/disable toggle with visual status
+- Model selection dropdown
+- Interactive threshold sliders with live preview
+- Decision zones visualization
+- Performance statistics dashboard
+
+Files added/changed:
+- `api/permissions_api.py` - Added 3 ML endpoints (GET/POST ml-config, GET ml-stats)
+- `frontend/index.html` - Added ML config section to settings panel
+- `frontend/js/ml-settings-manager.js` - Full settings manager (350+ lines, new file)
+- `frontend/css/components/ml-settings.css` - Complete styling (new file)
+
+User Experience:
+```
+Settings Panel → ML Autonomous Permissions:
+
+[✓] Enable ML Autonomous Permissions  [Enabled ✓]
+
+Model: embeddinggemma:latest ▼
+
+Auto-Allow Threshold: ━━━━●━━━━ +0.010
+  (Scores above this are auto-approved)
+
+Ask-User Threshold: ━━━━●━━━━ -0.010
+  (Scores below this prompt with warning)
+
+Decision Zones Preview:
+[ASK]─────[NEUTRAL]───[AUTO-ALLOW]──────
+-1.0           0.0              +1.0
+
+ML Performance Statistics:      [🔄 Refresh]
+  Total Checks: 156
+  ML Auto-Allow: 89 (57.1%)  ← Key metric
+  Static Rules: 35 (22.4%)
+  User Prompts: 32 (20.5%)
 ```
 
 ### Documentation
@@ -105,19 +146,31 @@ Users can control ML permissions via CLI:
 - Settings persistence tests
 - Mock-based tests (work without Ollama)
 
-**Manual Testing:**
+**Manual Testing Phase 1:**
 ```bash
 # Enable ML
 /perms ml-enable
 
-# Test safe operation (should show green score)
+# Test safe operation (should show green score in permission prompt)
 # Trigger: readfile ./README.md
 
-# Test risky operation (should show red score, ask user)
+# Test risky operation (should show red score + warning)
 # Trigger: bash rm file.txt
 
 # Check statistics
 /perms ml-stats
+```
+
+**Manual Testing Phase 2:**
+```bash
+# In Web UI:
+1. Click settings icon (gear) in top right
+2. Scroll to "ML Autonomous Permissions" section
+3. Toggle ML on/off (watch status indicator change)
+4. Adjust threshold sliders (watch preview update in real-time)
+5. Click "Refresh Stats" to load performance metrics
+6. Change model selection (persists after page reload)
+7. Close settings panel and test permission prompts
 ```
 
 ## Design Principles
@@ -145,13 +198,7 @@ None. This is a purely additive feature:
 
 ## Future Work (Not in this PR)
 
-**Phase 2:** ML configuration panel (see integration doc)
-- Settings UI with enable/disable toggle
-- Interactive threshold sliders
-- Real-time statistics dashboard
-- Model selection dropdown
-
-**Phase 3:** Advanced features
+**Phase 3:** Advanced features (optional)
 - Decision history log with export
 - Anchor concept explainability
 - Per-project threshold profiles
