@@ -374,6 +374,11 @@ class PermissionCommand(BaseCommand):
             'remove <rule>': 'Remove a permission rule',
             'reset': 'Reset to empty settings',
             'template': 'Copy default template to ~/.cli-agent/settings.json',
+            'ml-status': 'Show ML permission classifier status',
+            'ml-enable': 'Enable ML autonomous permissions',
+            'ml-disable': 'Disable ML autonomous permissions',
+            'ml-config [key=value]': 'View or update ML configuration',
+            'ml-stats': 'Show detailed ML permission statistics',
         }
 
     async def execute(self, parts: list[str], **kwargs: Any) -> CommandResponse:
@@ -403,8 +408,24 @@ class PermissionCommand(BaseCommand):
             elif action == "template":
                 return self._copy_template(mgr)
 
+            elif action == "ml-status":
+                return self._ml_status(mgr)
+
+            elif action == "ml-enable":
+                return await self._ml_enable(mgr)
+
+            elif action == "ml-disable":
+                return self._ml_disable(mgr)
+
+            elif action == "ml-config":
+                config_args = parts[2:] if len(parts) > 2 else []
+                return self._ml_config(mgr, config_args)
+
+            elif action == "ml-stats":
+                return self._ml_stats(mgr)
+
             else:
-                error_msg = "Usage: /perms [view|add <allow|deny|ask> <rule>|remove <rule>|reset|template]"
+                error_msg = "Usage: /perms [view|add <allow|deny|ask> <rule>|remove <rule>|reset|template|ml-status|ml-enable|ml-disable|ml-config|ml-stats]"
                 print(colored(error_msg, "yellow"))
                 return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
@@ -512,6 +533,198 @@ class PermissionCommand(BaseCommand):
             return CommandResponse(result=CommandResult.CONTINUE, message="Template copied")
         except Exception as e:
             error_msg = f"Failed to copy template: {str(e)}"
+            print(colored(f"❌ {error_msg}", "red"))
+            return CommandResponse(result=CommandResult.ERROR, message=error_msg)
+
+    def _ml_status(self, mgr) -> CommandResponse:
+        """Show ML permission classifier status."""
+        ml_config = mgr.get_ml_config()
+
+        print("\n" + "=" * 60)
+        print(colored("🤖 ML Permission Classifier Status", "cyan", attrs=['bold']))
+        print("=" * 60)
+
+        enabled = ml_config.get("enabled", False)
+        status_color = "green" if enabled else "yellow"
+        status_text = "ENABLED ✓" if enabled else "DISABLED"
+
+        print(f"\nStatus: {colored(status_text, status_color, attrs=['bold'])}")
+        print(f"Model: {ml_config.get('model', 'embeddinggemma:latest')}")
+        print(f"Auto-allow threshold: {ml_config.get('threshold_allow', 0.01):+.3f}")
+        print(f"Ask-user threshold: {ml_config.get('threshold_deny', -0.01):+.3f}")
+        print(f"Fallback on error: {ml_config.get('fallback_on_error', 'ask')}")
+
+        if not enabled:
+            print("\n" + colored("💡 Enable with: /perms ml-enable", "cyan"))
+
+        print("=" * 60 + "\n")
+        return CommandResponse(result=CommandResult.CONTINUE, message="ML status shown")
+
+    async def _ml_enable(self, mgr) -> CommandResponse:
+        """Enable ML autonomous permissions."""
+        from core.permissions.autonomous_permission import AutonomousPermission
+
+        print(colored("\n🤖 Enabling ML autonomous permissions...", "cyan"))
+
+        # Update config
+        mgr.set_ml_enabled(True)
+
+        # Try to initialize classifier to verify it works
+        try:
+            ml_config = mgr.get_ml_config()
+            autonomous = AutonomousPermission(
+                settings_manager=mgr,
+                ml_enabled=True,
+                ml_model=ml_config.get("model", "embeddinggemma:latest"),
+                threshold_allow=ml_config.get("threshold_allow", 0.01),
+                threshold_deny=ml_config.get("threshold_deny", -0.01)
+            )
+
+            # Test initialization (this may download model if needed)
+            print(colored("  Initializing classifier (this may take a moment)...", "yellow"))
+            success = autonomous.enable_ml()
+
+            if success:
+                stats = autonomous.get_stats()
+                cache_stats = stats.get("cache_stats", {})
+
+                print(colored("\n✅ ML permissions enabled successfully!", "green", attrs=['bold']))
+                print(f"\nClassifier initialized with {cache_stats.get('anchor_count', 47)} anchor concepts")
+                print(f"Cache ready with {cache_stats.get('cache_size', 0)} embeddings")
+                print("\n" + colored("Safe operations will now be auto-approved when confidence is high.", "green"))
+                print(colored("Risky operations will prompt with ML-based warnings.", "yellow"))
+
+                return CommandResponse(result=CommandResult.CONTINUE, message="ML enabled")
+            else:
+                print(colored("\n❌ Failed to initialize ML classifier", "red"))
+                print(colored("Check that Ollama is running and the model is available", "yellow"))
+                print(colored("Falling back to static rules only", "yellow"))
+
+                # Disable it again since initialization failed
+                mgr.set_ml_enabled(False)
+                return CommandResponse(result=CommandResult.ERROR, message="ML initialization failed")
+
+        except Exception as e:
+            print(colored(f"\n❌ Error enabling ML: {str(e)}", "red"))
+            mgr.set_ml_enabled(False)
+            return CommandResponse(result=CommandResult.ERROR, message=f"ML enable error: {str(e)}")
+
+    def _ml_disable(self, mgr) -> CommandResponse:
+        """Disable ML autonomous permissions."""
+        mgr.set_ml_enabled(False)
+        print(colored("\n✅ ML permissions disabled", "green"))
+        print(colored("Permission system will use static rules + user prompts only", "yellow"))
+        return CommandResponse(result=CommandResult.CONTINUE, message="ML disabled")
+
+    def _ml_config(self, mgr, config_args: list[str]) -> CommandResponse:
+        """View or update ML configuration."""
+        ml_config = mgr.get_ml_config()
+
+        # If no args, just show config
+        if not config_args:
+            print("\n" + "=" * 60)
+            print(colored("🤖 ML Configuration", "cyan", attrs=['bold']))
+            print("=" * 60)
+
+            for key, value in ml_config.items():
+                print(f"{key}: {value}")
+
+            print("\n" + colored("Usage: /perms ml-config key=value", "yellow"))
+            print(colored("Example: /perms ml-config threshold_allow=0.02", "yellow"))
+            print("=" * 60 + "\n")
+            return CommandResponse(result=CommandResult.CONTINUE, message="ML config shown")
+
+        # Parse and update config
+        updates = {}
+        for arg in config_args:
+            if '=' not in arg:
+                error_msg = f"Invalid format: {arg}. Use key=value"
+                print(colored(f"❌ {error_msg}", "red"))
+                return CommandResponse(result=CommandResult.ERROR, message=error_msg)
+
+            key, value = arg.split('=', 1)
+            key = key.strip()
+
+            # Type conversion
+            if key in ["threshold_allow", "threshold_deny"]:
+                try:
+                    value = float(value)
+                except ValueError:
+                    error_msg = f"Invalid float value for {key}: {value}"
+                    print(colored(f"❌ {error_msg}", "red"))
+                    return CommandResponse(result=CommandResult.ERROR, message=error_msg)
+            elif key == "enabled":
+                value = value.lower() in ["true", "1", "yes"]
+            elif key == "cache_embeddings":
+                value = value.lower() in ["true", "1", "yes"]
+            elif key == "log_classifications":
+                value = value.lower() in ["true", "1", "yes"]
+
+            updates[key] = value
+
+        # Apply updates
+        mgr.update_ml_config(**updates)
+
+        print(colored(f"\n✅ Updated ML config: {updates}", "green"))
+        print(colored("Restart or re-enable ML for changes to take effect", "yellow"))
+        return CommandResponse(result=CommandResult.CONTINUE, message="ML config updated")
+
+    def _ml_stats(self, mgr) -> CommandResponse:
+        """Show detailed ML permission statistics."""
+        from core.permissions.autonomous_permission import AutonomousPermission
+
+        ml_config = mgr.get_ml_config()
+
+        if not ml_config.get("enabled", False):
+            print(colored("\n⚠️  ML permissions are not enabled", "yellow"))
+            print(colored("Enable with: /perms ml-enable", "cyan"))
+            return CommandResponse(result=CommandResult.CONTINUE, message="ML not enabled")
+
+        # Need to create autonomous instance to get stats
+        # (In production, this would be a singleton/global instance)
+        try:
+            autonomous = AutonomousPermission(
+                settings_manager=mgr,
+                ml_enabled=True,
+                ml_model=ml_config.get("model", "embeddinggemma:latest"),
+                threshold_allow=ml_config.get("threshold_allow", 0.01),
+                threshold_deny=ml_config.get("threshold_deny", -0.01)
+            )
+
+            stats = autonomous.get_stats()
+
+            print("\n" + "=" * 60)
+            print(colored("📊 ML Permission Statistics", "cyan", attrs=['bold']))
+            print("=" * 60)
+
+            total = stats.get("total_checks", 0)
+            if total == 0:
+                print(colored("\nNo permissions checked yet in this session", "yellow"))
+            else:
+                print(f"\nTotal Checks: {total}")
+                print(f"\nDecision Breakdown:")
+                print(f"  Static Deny:     {stats.get('static_deny', 0):>4} ({100 * stats.get('static_deny', 0) / total:>5.1f}%)")
+                print(f"  Static Allow:    {stats.get('static_allow', 0):>4} ({100 * stats.get('static_allow', 0) / total:>5.1f}%)")
+                print(f"  ML Auto-Allow:   {stats.get('ml_auto_allow', 0):>4} ({100 * stats.get('ml_auto_allow', 0) / total:>5.1f}%)")
+                print(f"  ML Ask:          {stats.get('ml_ask', 0):>4} ({100 * stats.get('ml_ask', 0) / total:>5.1f}%)")
+                print(f"  ML Neutral:      {stats.get('ml_neutral', 0):>4} ({100 * stats.get('ml_neutral', 0) / total:>5.1f}%)")
+                print(f"  User Prompts:    {stats.get('user_prompts', 0):>4} ({100 * stats.get('user_prompts', 0) / total:>5.1f}%)")
+
+                if stats.get('ml_errors', 0) > 0:
+                    print(f"\n  ML Errors:       {stats.get('ml_errors', 0):>4}")
+
+            # Cache stats
+            cache_stats = stats.get("cache_stats", {})
+            if cache_stats:
+                print(f"\nEmbedding Cache:")
+                print(f"  Cached embeddings: {cache_stats.get('cache_size', 0)}")
+                print(f"  Anchor concepts:   {cache_stats.get('anchor_count', 0)}")
+
+            print("=" * 60 + "\n")
+            return CommandResponse(result=CommandResult.CONTINUE, message="ML stats shown")
+
+        except Exception as e:
+            error_msg = f"Error getting ML stats: {str(e)}"
             print(colored(f"❌ {error_msg}", "red"))
             return CommandResponse(result=CommandResult.ERROR, message=error_msg)
 
