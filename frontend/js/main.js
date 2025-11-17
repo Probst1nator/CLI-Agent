@@ -537,6 +537,7 @@ class VisualResponseApp {
                     }
 
                     // Trigger TTS for assistant messages with visualresponse/response tags
+                    let ttsPlayed = false;
                     if (this.speakModeEnabled) {
                         // Extract text ONLY from visualresponse or response tags
                         const visualResponseMatch = /<visualresponse>\s*(?:<action>.*?<\/action>\s*)?<type>.*?<\/type>\s*<content>([\s\S]*?)<\/content>\s*<\/visualresponse>/i.exec(content);
@@ -560,24 +561,39 @@ class VisualResponseApp {
                             // Only speak if text is different from last spoken text
                             if (this.lastSpokenText === text) {
                                 console.log('📝 Skipping duplicate TTS (same text as last spoken)');
-                                return;
-                            }
-
-                            this.lastSpokenText = text;
-
-                            // Check if user has interacted yet (browser autoplay policy)
-                            if (!this.audioManager.hasUserInteraction) {
-                                window.logDebug('⏸️ TTS queued - waiting for user interaction (browser autoplay policy)');
-                                this.pendingTTS = text;
-                                this.showAutoplayPrompt();
+                                // Don't return - continue to resume logic below
                             } else {
-                                console.log('🔊 Final response received, speak mode active - triggering TTS');
-                                try {
-                                    await this.audioManager.playTTS(text, 'auto');
-                                } catch (error) {
-                                    console.error('TTS playback failed:', error);
+                                this.lastSpokenText = text;
+
+                                // Check if user has interacted yet (browser autoplay policy)
+                                if (!this.audioManager.hasUserInteraction) {
+                                    window.logDebug('⏸️ TTS queued - waiting for user interaction (browser autoplay policy)');
+                                    this.pendingTTS = text;
+                                    this.showAutoplayPrompt();
+                                } else {
+                                    console.log('🔊 Final response received, speak mode active - triggering TTS');
+                                    try {
+                                        await this.audioManager.playTTS(text, 'auto');
+                                        ttsPlayed = true;
+                                    } catch (error) {
+                                        console.error('TTS playback failed:', error);
+                                    }
                                 }
                             }
+                        }
+                    }
+
+                    // If TTS didn't play (microphone-only mode or no text), resume recording
+                    // Backend paused after transcription, needs to be resumed
+                    if (!ttsPlayed && hasFinalResponse && this.audioManager) {
+                        console.log('📝 No TTS played - resuming recording for microphone-only mode');
+                        // Play notification beep to signal ready
+                        if (this.audioManager.playNotificationSound) {
+                            await this.audioManager.playNotificationSound('listening');
+                        }
+                        // Resume recording after beep
+                        if (this.audioManager.resumeRecording) {
+                            this.audioManager.resumeRecording();
                         }
                     }
                 }

@@ -237,8 +237,9 @@ async def websocket_audio_stream(request: Any) -> Any:
                                 # Print user reply message (like CLI mode)
                                 print(f"🎤 User replied: \"{text.strip()}\"")
 
-                                # Don't pause here - let recording continue
-                                # Frontend will pause only when TTS actually starts playing
+                                # Pause immediately to avoid capturing agent response/TTS/beep
+                                # Frontend will resume after TTS + beep finish (or immediately if no TTS)
+                                handler.pause()
 
                                 # Send transcription back to client
                                 await ws.send_json({
