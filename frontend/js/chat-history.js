@@ -191,8 +191,8 @@ class ChatHistorySidebar {
     async loadChats() {
         try {
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/chat/archives')
-                : await fetch('/api/chat/archives');
+                ? await window.backendConnector.fetch('api/chat/archives')
+                : await fetch('api/chat/archives');
 
             if (!response.ok) {
                 const errorText = await response.text();

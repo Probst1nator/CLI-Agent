@@ -64,7 +64,7 @@ class AuthManager {
         console.log('[AuthManager] Refreshing JWT token for UUID:', uuid.substring(0, 8) + '...');
 
         try {
-            const response = await fetch('/api/manager/auth/login', {
+            const response = await fetch('api/manager/auth/login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({uuid})

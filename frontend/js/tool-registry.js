@@ -69,8 +69,8 @@ class ToolRegistry {
         try {
             window.logDebug('[ToolRegistry] Fetching tools from: /api/tools');
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/tools')
-                : await fetch('/api/tools');
+                ? await window.backendConnector.fetch('api/tools')
+                : await fetch('api/tools');
 
             if (!response.ok) {
                 const errorText = await response.text();

@@ -140,8 +140,8 @@ class SettingsManager {
     async loadPermissions() {
         try {
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/permissions')
-                : await fetch('/api/permissions');
+                ? await window.backendConnector.fetch('api/permissions')
+                : await fetch('api/permissions');
             const data = await response.json();
 
             if (data.status !== 'success') {
@@ -173,8 +173,8 @@ class SettingsManager {
     async loadTools() {
         try {
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/tools')
-                : await fetch('/api/tools');
+                ? await window.backendConnector.fetch('api/tools')
+                : await fetch('api/tools');
             const data = await response.json();
 
             if (data.status !== 'success') {
@@ -393,7 +393,7 @@ class SettingsManager {
             .filter(Boolean);
 
         const response = window.backendConnector
-            ? await window.backendConnector.fetch('/api/permissions', {
+            ? await window.backendConnector.fetch('api/permissions', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -401,7 +401,7 @@ class SettingsManager {
                 },
                 body: JSON.stringify({ allow, ask, deny })
             })
-            : await fetch('/api/permissions', {
+            : await fetch('api/permissions', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -429,13 +429,13 @@ class SettingsManager {
             console.log('[SettingsManager] Saving current settings as default template...');
 
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/permissions/save-as-default', {
+                ? await window.backendConnector.fetch('api/permissions/save-as-default', {
                     method: 'POST',
                     headers: {
                         'X-Session-ID': window.sessionId || ''
                     }
                 })
-                : await fetch('/api/permissions/save-as-default', {
+                : await fetch('api/permissions/save-as-default', {
                     method: 'POST',
                     headers: {
                         'X-Session-ID': window.sessionId || ''
@@ -468,13 +468,13 @@ class SettingsManager {
             console.log('[SettingsManager] Resetting permissions to default template...');
 
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/permissions/reset', {
+                ? await window.backendConnector.fetch('api/permissions/reset', {
                     method: 'POST',
                     headers: {
                         'X-Session-ID': window.sessionId || ''
                     }
                 })
-                : await fetch('/api/permissions/reset', {
+                : await fetch('api/permissions/reset', {
                     method: 'POST',
                     headers: {
                         'X-Session-ID': window.sessionId || ''

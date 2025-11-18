@@ -65,7 +65,7 @@ class BackendConnector {
     const uuid = this.identityManager.getUUID()
 
     try {
-      const response = await fetch('/api/manager/discover', {
+      const response = await fetch('api/manager/discover', {
         headers: {
           'X-User-UUID': uuid
         }
@@ -155,7 +155,7 @@ class BackendConnector {
     }
 
     try {
-      await fetch('/api/manager/activity', {
+      await fetch('api/manager/activity', {
         method: 'POST',
         headers: {
           'X-User-UUID': this.identityManager.getUUID()

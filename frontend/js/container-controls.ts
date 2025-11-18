@@ -110,7 +110,7 @@ class ContainerControls {
     }
 
     try {
-      const response = await fetch('/api/manager/containers', {
+      const response = await fetch('api/manager/containers', {
         headers: {
           'X-User-UUID': this.identityManager.getUUID()
         }

@@ -189,7 +189,7 @@ class Logger {
         try {
             // Use BackendConnector if available for multi-user support
             const fetchPromise = window.backendConnector
-                ? window.backendConnector.fetch('/api/logs/client', {
+                ? window.backendConnector.fetch('api/logs/client', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -198,7 +198,7 @@ class Logger {
                     },
                     body: JSON.stringify(payload)
                 })
-                : fetch('/api/logs/client', {
+                : fetch('api/logs/client', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

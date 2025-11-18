@@ -50,20 +50,104 @@ http:
         prefixes:
           - "/api/manager"
 
+    # Strip /main prefix for OLD SaaS system
+    strip-main-prefix:
+      stripPrefix:
+        prefixes:
+          - "/main"
+
+    # Strip /agents prefix for NEW SaaS system
+    strip-agents-prefix:
+      stripPrefix:
+        prefixes:
+          - "/agents"
+
+    # Redirect /main to /main/ (trailing slash for SPA)
+    redirect-main-slash:
+      redirectRegex:
+        regex: "^(.*)/main$"
+        replacement: "${1}/main/"
+        permanent: true
+
+    # Redirect /agents to /agents/ (trailing slash for SPA)
+    redirect-agents-slash:
+      redirectRegex:
+        regex: "^(.*)/agents$"
+        replacement: "${1}/agents/"
+        permanent: true
+
   routers:
-    # Container Manager API
-    # Handles both /api/manager/* and /api/backend/* (WebSocket + HTTP proxy)
-    # SECURITY: Only accept requests to local IP address
-    container-manager:
-      rule: "Host(`<YOUR_SERVER_IP>`) && (PathPrefix(`/api/manager`) || PathPrefix(`/api/backend`))"
-      service: container-manager
-      priority: 10  # Higher than frontend (priority 1)
+    # Redirect /main to /main/ (highest priority)
+    redirect-main:
+      rule: "Host(`<YOUR_SERVER_IP>`) && Path(`/main`)"
+      service: noop@internal
+      priority: 100
       entryPoints:
         - web
       middlewares:
+        - redirect-main-slash
+
+    # Redirect /agents to /agents/ (highest priority)
+    redirect-agents:
+      rule: "Host(`<YOUR_SERVER_IP>`) && Path(`/agents`)"
+      service: noop@internal
+      priority: 100
+      entryPoints:
+        - web
+      middlewares:
+        - redirect-agents-slash
+
+    # Container Manager API (OLD SaaS - moved to /main path)
+    # Handles both /main/api/manager/* and /main/api/backend/* (WebSocket + HTTP proxy)
+    # SECURITY: Only accept requests to local IP address
+    container-manager:
+      rule: "Host(`<YOUR_SERVER_IP>`) && (PathPrefix(`/main/api/manager`) || PathPrefix(`/main/api/backend`))"
+      service: container-manager
+      priority: 15  # Higher than frontend to match /main/* paths first
+      entryPoints:
+        - web
+      middlewares:
+        - strip-main-prefix
         - strip-manager-prefix
         # Rate limiting disabled for local deployment
         # - container-ops-limit
+        - security-headers
+        - compress
+
+    # Frontend for OLD SaaS (/main path)
+    frontend-main:
+      rule: "Host(`<YOUR_SERVER_IP>`) && PathPrefix(`/main/`)"
+      service: frontend-main
+      priority: 10  # Lower than API routes
+      entryPoints:
+        - web
+      middlewares:
+        - strip-main-prefix
+        - security-headers
+        - compress
+
+    # Container Manager API (NEW SaaS - /agents path)
+    container-manager-agents:
+      rule: "Host(`<YOUR_SERVER_IP>`) && (PathPrefix(`/agents/api/manager`) || PathPrefix(`/agents/api/backend`))"
+      service: container-manager-agents
+      priority: 15  # Higher than frontend
+      entryPoints:
+        - web
+      middlewares:
+        - strip-agents-prefix
+        - strip-manager-prefix
+        - security-headers
+        - compress
+
+    # Frontend for NEW SaaS (/agents path)
+    frontend-agents:
+      rule: "Host(`<YOUR_SERVER_IP>`) && PathPrefix(`/agents/`)"
+      service: frontend-agents
+      priority: 10  # Lower than API routes
+      entryPoints:
+        - web
+      middlewares:
+        - strip-agents-prefix
         - security-headers
         - compress
 
@@ -76,3 +160,22 @@ http:
           path: /health
           interval: 30s
           timeout: 10s
+
+    container-manager-agents:
+      loadBalancer:
+        servers:
+          - url: "http://cli-agent-container-manager-agents:8080"
+        healthCheck:
+          path: /health
+          interval: 30s
+          timeout: 10s
+
+    frontend-main:
+      loadBalancer:
+        servers:
+          - url: "http://cli-agent-frontend:80"
+
+    frontend-agents:
+      loadBalancer:
+        servers:
+          - url: "http://cli-agent-frontend-agents:80"

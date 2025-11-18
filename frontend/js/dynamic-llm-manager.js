@@ -148,11 +148,11 @@ class DynamicLLMManager {
 
             try {
                 const response = window.backendConnector
-                    ? await window.backendConnector.fetch('/api/llms', {
+                    ? await window.backendConnector.fetch('api/llms', {
                         signal: controller.signal,
                         headers: { 'X-Session-ID': window.sessionId || '' }
                     })
-                    : await fetch('/api/llms', {
+                    : await fetch('api/llms', {
                         signal: controller.signal,
                         headers: { 'X-Session-ID': window.sessionId || '' }
                     });
@@ -448,7 +448,7 @@ class DynamicLLMManager {
                     .filter(m => m && m !== 'none');
 
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/llms/config', {
+                ? await window.backendConnector.fetch('api/llms/config', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -459,7 +459,7 @@ class DynamicLLMManager {
                         models: models
                     })
                 })
-                : await fetch('/api/llms/config', {
+                : await fetch('api/llms/config', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

@@ -886,7 +886,7 @@ class AudioManager {
             this.showTTSStatus('Generating speech...');
 
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/audio/tts', {
+                ? await window.backendConnector.fetch('api/audio/tts', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -894,7 +894,7 @@ class AudioManager {
                     },
                     body: JSON.stringify({ text, language })
                 })
-                : await fetch('/api/audio/tts', {
+                : await fetch('api/audio/tts', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1272,12 +1272,12 @@ class AudioManager {
     async getVoiceStatus() {
         try {
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/audio/voice_status', {
+                ? await window.backendConnector.fetch('api/audio/voice_status', {
                     headers: {
                         'X-Session-ID': window.sessionId || ''
                     }
                 })
-                : await fetch('/api/audio/voice_status', {
+                : await fetch('api/audio/voice_status', {
                     headers: {
                         'X-Session-ID': window.sessionId || ''
                     }

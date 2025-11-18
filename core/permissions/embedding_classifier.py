@@ -32,6 +32,13 @@ try:
 except ImportError:
     OLLAMA_AVAILABLE = False
 
+# Conditional import for fine-tuned classifier
+try:
+    from .finetuned_classifier import FineTunedClassifier as _FineTunedClassifier
+    FINETUNED_AVAILABLE = True
+except ImportError:
+    FINETUNED_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # Type aliases for clarity
@@ -142,28 +149,53 @@ class EmbeddingClassifier:
         model: str = "embeddinggemma:latest",
         threshold_allow: float = 0.01,
         threshold_deny: float = -0.01,
-        ollama_host: Optional[str] = None
+        ollama_host: Optional[str] = None,
+        use_finetuned: bool = True
     ):
         """
         Initialize classifier with configurable thresholds.
 
         Args:
-            model: Ollama embedding model name
+            model: Ollama embedding model name (used if fine-tuned not available)
             threshold_allow: Score above this → auto-allow (default: 0.01)
             threshold_deny: Score below this → ask user (default: -0.01)
             ollama_host: Ollama server host (default: from OLLAMA_HOST env or localhost)
+            use_finetuned: Prefer fine-tuned local model over Ollama (default: True)
 
         Raises:
-            RuntimeError: If Ollama is not available
+            RuntimeError: If neither fine-tuned model nor Ollama is available
         """
+        self.threshold_allow = threshold_allow
+        self.threshold_deny = threshold_deny
+        self._use_finetuned = False
+        self._impl = None
+        
+        # Try to use fine-tuned model first
+        if use_finetuned and FINETUNED_AVAILABLE:
+            try:
+                logger.info("Attempting to use fine-tuned local model...")
+                self._impl = _FineTunedClassifier(
+                    threshold_allow=threshold_allow,
+                    threshold_deny=threshold_deny
+                )
+                self._use_finetuned = True
+                logger.info("✓ Using fine-tuned local model for permission classification")
+                return
+            except FileNotFoundError as e:
+                logger.warning(f"Fine-tuned model not found: {e}")
+                logger.info("Falling back to Ollama...")
+            except Exception as e:
+                logger.warning(f"Failed to load fine-tuned model: {e}")
+                logger.info("Falling back to Ollama...")
+        
+        # Fall back to Ollama
         if not OLLAMA_AVAILABLE:
             raise RuntimeError(
-                "Ollama package not available. Install with: pip install ollama"
+                "Neither fine-tuned model nor Ollama available. "
+                "Install Ollama with: pip install ollama, or train fine-tuned model."
             )
 
         self.model = model
-        self.threshold_allow = threshold_allow
-        self.threshold_deny = threshold_deny
 
         # Ollama client setup
         if ollama_host is None:
@@ -178,7 +210,7 @@ class EmbeddingClassifier:
         self._cache: dict[str, EmbeddingVector] = {}
 
         logger.info(
-            f"Initialized EmbeddingClassifier: model={model}, "
+            f"Initialized EmbeddingClassifier (Ollama): model={model}, "
             f"thresholds=[{threshold_deny:.3f}, {threshold_allow:.3f}]"
         )
 
@@ -199,6 +231,11 @@ class EmbeddingClassifier:
             - ~1-2 seconds for 47 anchors (18 safe + 29 unsafe)
             - Blocks until all embeddings computed
         """
+        # Delegate to fine-tuned implementation if available
+        if self._use_finetuned and self._impl is not None:
+            self._impl.initialize()
+            return
+        
         if self.safe_embeddings is not None and self.unsafe_embeddings is not None:
             logger.debug("Embeddings already initialized, skipping")
             return
@@ -274,6 +311,10 @@ class EmbeddingClassifier:
             >>> classifier.classify("<readfile><filepath>./src/main.py</filepath></readfile>")
             ("neutral", -0.003)
         """
+        # Delegate to fine-tuned implementation if available
+        if self._use_finetuned and self._impl is not None:
+            return self._impl.classify(xml_string)
+        
         # Ensure initialized
         if self.safe_embeddings is None or self.unsafe_embeddings is None:
             self.initialize()
@@ -384,6 +425,10 @@ class EmbeddingClassifier:
                 - cache_size: Number of cached embeddings
                 - anchor_count: Number of anchor embeddings (safe + unsafe)
         """
+        # Delegate to fine-tuned implementation if available
+        if self._use_finetuned and self._impl is not None:
+            return self._impl.get_cache_stats()
+        
         return {
             "cache_size": len(self._cache),
             "anchor_count": len(self.SAFE_CONCEPTS) + len(self.UNSAFE_CONCEPTS)

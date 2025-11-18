@@ -729,8 +729,8 @@ class VisualResponseApp {
 
             try {
                 const response = window.backendConnector
-                    ? await window.backendConnector.fetch('/api/agent/state', { signal: controller.signal })
-                    : await fetch('/api/agent/state', { signal: controller.signal });
+                    ? await window.backendConnector.fetch('api/agent/state', { signal: controller.signal })
+                    : await fetch('api/agent/state', { signal: controller.signal });
                 clearTimeout(timeoutId);
                 const data = await response.json();
                 if (data.status === 'success' && data.state) {
@@ -970,7 +970,7 @@ class VisualResponseApp {
 
             try {
                 const response = window.backendConnector
-                    ? await window.backendConnector.fetch('/api/chat/message/edit', {
+                    ? await window.backendConnector.fetch('api/chat/message/edit', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -978,7 +978,7 @@ class VisualResponseApp {
                             new_content: newContent
                         })
                     })
-                    : await fetch('/api/chat/message/edit', {
+                    : await fetch('api/chat/message/edit', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -1721,8 +1721,8 @@ class VisualResponseApp {
         let messageIndex;
         try {
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/chat/current')
-                : await fetch('/api/chat/current');
+                ? await window.backendConnector.fetch('api/chat/current')
+                : await fetch('api/chat/current');
             const data = await response.json();
             if (data.status === 'success' && data.chat && data.chat.messages) {
                 // The new message will be at the current length index (after it's added by backend)
@@ -4325,8 +4325,8 @@ class VisualResponseApp {
 
             try {
                 const response = window.backendConnector
-                    ? await window.backendConnector.fetch('/api/profiles', { signal: controller.signal })
-                    : await fetch('/api/profiles', { signal: controller.signal });
+                    ? await window.backendConnector.fetch('api/profiles', { signal: controller.signal })
+                    : await fetch('api/profiles', { signal: controller.signal });
                 clearTimeout(timeoutId);
                 const data = await response.json();
 
@@ -4493,10 +4493,10 @@ class VisualResponseApp {
         try {
             window.logDebug('📡 Fetching LLM config from: /api/llms');
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/llms', {
+                ? await window.backendConnector.fetch('api/llms', {
                     headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
                 })
-                : await fetch('/api/llms', {
+                : await fetch('api/llms', {
                     headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
                 });
             const data = await response.json();
@@ -5427,8 +5427,8 @@ class ConsoleLogManager {
     async fetchAvailableLogs() {
         try {
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/logs/list')
-                : await fetch('/api/logs/list');
+                ? await window.backendConnector.fetch('api/logs/list')
+                : await fetch('api/logs/list');
             const result = await response.json();
 
             if (result.status === 'success') {

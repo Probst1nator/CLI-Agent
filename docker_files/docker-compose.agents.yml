@@ -1,0 +1,95 @@
+version: '3.8'
+
+# CLI-Agent NEW SaaS Infrastructure - /agents path
+# Isolated from OLD system, separate DB, volumes, containers
+
+services:
+  # Container Manager for NEW system
+  container-manager-agents:
+    image: cli-agent-manager:latest
+    container_name: cli-agent-container-manager-agents
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - container-manager-agents-data:/data
+      - container-manager-agents-logs:/logs
+    networks:
+      - cli-agent-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+        labels: "cli-agent.service.agents"
+    environment:
+      - STORAGE_THRESHOLD=90
+      - DEFAULT_RETENTION_DAYS=7
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - OLLAMA_HOST=${OLLAMA_HOST}
+      - BRAVE_API_KEY=${BRAVE_API_KEY}
+    labels:
+      - "traefik.enable=true"
+      # Route /agents/api/manager/* and /agents/api/backend/* to this manager
+      - "traefik.http.routers.manager-agents.rule=Host(`<YOUR_SERVER_IP>`) && (PathPrefix(`/agents/api/manager`) || PathPrefix(`/agents/api/backend`))"
+      - "traefik.http.services.manager-agents.loadbalancer.server.port=8080"
+      # Strip /agents prefix first, then /api/manager prefix
+      - "traefik.http.routers.manager-agents.middlewares=strip-agents-prefix@file,strip-manager-prefix@file,security-headers@file"
+      - "traefik.http.routers.manager-agents.priority=20"  # Higher than OLD system
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Frontend for NEW system (agent-saas frontend)
+  frontend-agents:
+    image: cli-agent-frontend-agents:latest
+    container_name: cli-agent-frontend-agents
+    restart: unless-stopped
+    networks:
+      - cli-agent-network
+    labels:
+      - "traefik.enable=true"
+      # Route /agents/* to frontend
+      - "traefik.http.routers.frontend-agents.rule=Host(`<YOUR_SERVER_IP>`) && PathPrefix(`/agents`)"
+      - "traefik.http.services.frontend-agents.loadbalancer.server.port=80"
+      - "traefik.http.routers.frontend-agents.priority=15"  # Match /agents paths
+      - "traefik.http.routers.frontend-agents.middlewares=strip-agents-prefix@file,security-headers@file,compress@file"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  cli-agent-network:
+    external: true
+    name: cli-agent-network
+
+volumes:
+  container-manager-agents-data:
+    driver: local
+    name: container-manager-agents-data
+  container-manager-agents-logs:
+    driver: local
+    name: container-manager-agents-logs

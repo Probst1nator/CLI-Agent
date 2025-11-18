@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 providers = ["groq", "google-generativeai", "ollama"]
+finetuned = ["sentence-transformers>=3.0.0", "torch>=2.0.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]

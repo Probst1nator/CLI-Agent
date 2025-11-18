@@ -1,9 +1,9 @@
 FROM nginx:alpine
 
 LABEL maintainer="CLI-Agent Team"
-LABEL description="Frontend Container for CLI-Agent Multi-User Architecture"
+LABEL description="Universal Frontend Container for CLI-Agent (path-agnostic)"
 
-# Copy frontend files
+# Copy frontend files (works for any base path)
 COPY frontend/ /usr/share/nginx/html/
 
 # Copy nginx configuration

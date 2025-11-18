@@ -61,7 +61,7 @@ class BackendConnector {
      */
     async discoverBackend() {
         if (this.isLocal) {
-            this.backendURL = window.location.origin;
+            this.backendURL = window.location.origin + '/';
             this.isDiscovered = true;
             console.log('Local mode: backend URL =', this.backendURL);
             this._notifyReady();
@@ -84,7 +84,7 @@ class BackendConnector {
                 headers['X-User-UUID'] = uuid;
             }
 
-            const response = await fetch('/api/manager/discover', {
+            const response = await fetch('api/manager/discover', {
                 headers: headers
             });
 
@@ -95,7 +95,7 @@ class BackendConnector {
             const data = await response.json();
 
             if (data.status === 'success') {
-                this.backendURL = `/api/backend/${uuid}`;
+                this.backendURL = `api/backend/${uuid}/`;
                 this.containerName = data.container_name;
                 this.isDiscovered = true;
 
@@ -127,11 +127,11 @@ class BackendConnector {
 
         if (this.isLocal) {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            return `${protocol}//${window.location.host}/ws`;
+            return `${protocol}//${window.location.host}${window.location.pathname}ws`;
         } else {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const uuid = this.identityManager.getUUID();
-            return `${protocol}//${window.location.host}/api/backend/${uuid}/ws`;
+            return `${protocol}//${window.location.host}${window.location.pathname}api/backend/${uuid}/ws`;
         }
     }
 
@@ -145,7 +145,8 @@ class BackendConnector {
             await this.discoverBackend();
         }
 
-        return `${this.backendURL}${path}`;
+        const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+        return `${this.backendURL}${cleanPath}`;
     }
 
     /**
@@ -159,7 +160,8 @@ class BackendConnector {
             await this.discoverBackend();
         }
 
-        const url = `${this.backendURL}${path}`;
+        const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+        const url = `${this.backendURL}${cleanPath}`;
 
         options.headers = options.headers || {};
         if (!this.isLocal) {
@@ -194,7 +196,7 @@ class BackendConnector {
                 headers['X-User-UUID'] = this.identityManager.getUUID();
             }
 
-            await fetch('/api/manager/activity', {
+            await fetch('api/manager/activity', {
                 method: 'POST',
                 headers: headers
             });

@@ -87,7 +87,7 @@ class ContainerControls {
 
         try {
             // Note: This is a manager API, not backend API, but still needs auth in multi-user mode
-            const response = await fetch('/api/manager/containers', {
+            const response = await fetch('api/manager/containers', {
                 headers: Object.assign(
                     { 'X-User-UUID': this.identityManager.getUUID() },
                     window.authManager ? window.authManager.getAuthHeaders() : {}

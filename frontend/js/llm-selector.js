@@ -338,8 +338,8 @@ class SearchableLLMSelectbox {
         try {
             this.showLoading(true);
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/llms')
-                : await fetch('/api/llms');
+                ? await window.backendConnector.fetch('api/llms')
+                : await fetch('api/llms');
             const data = await response.json();
 
             if (data.status === 'success') {

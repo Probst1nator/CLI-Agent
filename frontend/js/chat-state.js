@@ -151,13 +151,13 @@ class ChatStateManager {
 
             try {
                 const response = window.backendConnector
-                    ? await window.backendConnector.fetch('/api/chat/current', {
+                    ? await window.backendConnector.fetch('api/chat/current', {
                         headers: {
                             'X-Session-ID': window.sessionId || ''
                         },
                         signal: controller.signal
                     })
-                    : await fetch('/api/chat/current', {
+                    : await fetch('api/chat/current', {
                         headers: {
                             'X-Session-ID': window.sessionId || ''
                         },
@@ -248,13 +248,13 @@ class ChatStateManager {
     async startNewChat() {
         try {
             const response = window.backendConnector
-                ? await window.backendConnector.fetch('/api/chat/new', {
+                ? await window.backendConnector.fetch('api/chat/new', {
                     method: 'POST',
                     headers: {
                         'X-Session-ID': window.sessionId || ''
                     }
                 })
-                : await fetch('/api/chat/new', {
+                : await fetch('api/chat/new', {
                     method: 'POST',
                     headers: {
                         'X-Session-ID': window.sessionId || ''

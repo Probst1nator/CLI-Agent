@@ -67,7 +67,7 @@ class MLSettingsManager {
 
     async loadMLConfig() {
         try {
-            const response = await fetch('/api/permissions/ml-config');
+            const response = await fetch('api/permissions/ml-config');
             const data = await response.json();
 
             if (data.status === 'success') {
@@ -119,7 +119,7 @@ class MLSettingsManager {
         const newEnabled = this.toggleCheckbox.checked;
 
         try {
-            const response = await fetch('/api/permissions/ml-config', {
+            const response = await fetch('api/permissions/ml-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ enabled: newEnabled })
@@ -195,7 +195,7 @@ class MLSettingsManager {
     }
 
     async updateMLConfig(updates) {
-        const response = await fetch('/api/permissions/ml-config', {
+        const response = await fetch('api/permissions/ml-config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updates)
@@ -233,7 +233,7 @@ class MLSettingsManager {
         this.statsDisplay.innerHTML = '<p class="loading">Loading statistics...</p>';
 
         try {
-            const response = await fetch('/api/permissions/ml-stats');
+            const response = await fetch('api/permissions/ml-stats');
             const data = await response.json();
 
             if (data.status === 'success' && data.stats) {

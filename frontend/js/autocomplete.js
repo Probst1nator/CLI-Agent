@@ -286,7 +286,7 @@ class AutocompleteManager {
 
       // Build API URL (handle both local and multi-user modes)
       const response = window.backendConnector
-        ? await window.backendConnector.fetch('/api/autocomplete', {
+        ? await window.backendConnector.fetch('api/autocomplete', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -297,7 +297,7 @@ class AutocompleteManager {
               max_suggestions: this.options.maxSuggestions,
             }),
           })
-        : await fetch('/api/autocomplete', {
+        : await fetch('api/autocomplete', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -344,7 +344,7 @@ class AutocompleteManager {
 
       // Build API URL
       const response = window.backendConnector
-        ? await window.backendConnector.fetch('/api/autocomplete/custom', {
+        ? await window.backendConnector.fetch('api/autocomplete/custom', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -356,7 +356,7 @@ class AutocompleteManager {
             }),
             signal: this.customSuggestionsAbortController.signal,
           })
-        : await fetch('/api/autocomplete/custom', {
+        : await fetch('api/autocomplete/custom', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -734,7 +734,7 @@ class AutocompleteManager {
 
       // Build API URL
       const fetchPromise = window.backendConnector
-        ? window.backendConnector.fetch('/api/chat/track-prompt-click', {
+        ? window.backendConnector.fetch('api/chat/track-prompt-click', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -744,7 +744,7 @@ class AutocompleteManager {
               prompt: prompt,
             }),
           })
-        : fetch('/api/chat/track-prompt-click', {
+        : fetch('api/chat/track-prompt-click', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -774,12 +774,12 @@ class AutocompleteManager {
 
       // Build API URL (handle both local and multi-user modes)
       const response = window.backendConnector
-        ? await window.backendConnector.fetch('/api/chat/suggested-prompts', {
+        ? await window.backendConnector.fetch('api/chat/suggested-prompts', {
             headers: {
               'X-Session-ID': window.sessionId || '',
             },
           })
-        : await fetch('/api/chat/suggested-prompts', {
+        : await fetch('api/chat/suggested-prompts', {
             headers: {
               'X-Session-ID': window.sessionId || '',
             },

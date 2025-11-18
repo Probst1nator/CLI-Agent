@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Management - CLI-Agent</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="main-header">
+        <div class="header-left">
+            <h1>🤖 Agent Management</h1>
+            <span class="header-subtitle">Multi-Session Agent SaaS</span>
+        </div>
+        <div class="header-right">
+            <span class="user-uuid" id="user-uuid">Loading...</span>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <div class="container">
+        <div class="main-content-area">
+            <!-- Left Sidebar: Session List -->
+            <aside class="session-sidebar">
+                <div class="sidebar-header">
+                    <h2>Agent Sessions</h2>
+                </div>
+
+                <!-- Spawn New Session Interface -->
+                <div class="spawn-interface">
+                    <label for="agent-type-select" class="spawn-label">Agent Type</label>
+                    <select id="agent-type-select" class="agent-type-select">
+                        <option value="">Loading agents...</option>
+                    </select>
+
+                    <label for="initial-prompt" class="spawn-label">Initial Prompt</label>
+                    <textarea
+                        id="initial-prompt"
+                        class="initial-prompt-input"
+                        placeholder="Enter your first message to the agent..."
+                        rows="3"
+                    ></textarea>
+
+                    <button id="spawn-session-btn" class="spawn-button" disabled>
+                        <span>🚀 Spawn</span>
+                    </button>
+                </div>
+
+                <div class="session-list" id="session-list">
+                    <!-- Sessions will be dynamically inserted here -->
+                    <div class="session-list-empty">
+                        <p>No active sessions</p>
+                        <p class="help-text">Spawn a new session to get started</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Right Panel: Chat Interface -->
+            <main class="chat-panel">
+                <div class="chat-header" id="chat-header">
+                    <div class="session-info" id="session-info">
+                        <span class="no-session-selected">No session selected</span>
+                    </div>
+                    <div class="chat-actions">
+                        <button id="clear-chat-btn" class="icon-button" title="Clear chat history" disabled>
+                            🗑️
+                        </button>
+                        <button id="terminate-session-btn" class="icon-button danger" title="Terminate session" disabled>
+                            ⛔
+                        </button>
+                    </div>
+                </div>
+
+                <div class="chat-messages" id="chat-messages">
+                    <div class="welcome-message">
+                        <h2>Welcome to Agent Management</h2>
+                        <p>Select a session from the sidebar or create a new one to get started.</p>
+                        <div class="feature-list">
+                            <div class="feature">
+                                <span class="feature-icon">⚡</span>
+                                <span class="feature-text">Multiple concurrent agent sessions</span>
+                            </div>
+                            <div class="feature">
+                                <span class="feature-icon">🔒</span>
+                                <span class="feature-text">Fully isolated Docker containers</span>
+                            </div>
+                            <div class="feature">
+                                <span class="feature-icon">🔄</span>
+                                <span class="feature-text">Real-time WebSocket streaming</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-container" id="chat-input-container">
+                    <textarea
+                        id="chat-input"
+                        class="chat-input"
+                        placeholder="Select a session to start chatting..."
+                        disabled
+                        rows="3"
+                    ></textarea>
+                    <button id="send-btn" class="send-button" disabled>
+                        <span>Send</span>
+                    </button>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="status-bar">
+        <div class="status-left">
+            <span id="connection-status" class="status-indicator">
+                <span class="status-dot disconnected"></span>
+                <span>Disconnected</span>
+            </span>
+        </div>
+        <div class="status-right">
+            <span id="active-sessions-count">0 active sessions</span>
+        </div>
+    </footer>
+
+    <!-- Modal: New Session -->
+    <div id="new-session-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Agent Session</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>Select an agent type to spawn a new session:</p>
+                <div id="agent-type-list" class="agent-type-list">
+                    <!-- Agent types will be loaded here -->
+                    <div class="loading">Loading available agents...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-button modal-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/logger.js"></script>
+    <script src="js/identity-manager.js"></script>
+    <script src="js/session-manager.js"></script>
+    <script src="js/chat-interface.js"></script>
+    <script src="js/agent-websocket.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
