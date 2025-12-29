@@ -147,15 +147,10 @@ class DynamicLLMManager {
             const timeoutId = setTimeout(() => controller.abort(), 5000);
 
             try {
-                const response = window.backendConnector
-                    ? await window.backendConnector.fetch('api/llms', {
-                        signal: controller.signal,
-                        headers: { 'X-Session-ID': window.sessionId || '' }
-                    })
-                    : await fetch('api/llms', {
-                        signal: controller.signal,
-                        headers: { 'X-Session-ID': window.sessionId || '' }
-                    });
+                const response = await fetch('api/llms', {
+                    signal: controller.signal,
+                    headers: { 'X-Session-ID': window.sessionId || '' }
+                });
                 clearTimeout(timeoutId);
 
                 const data = await response.json();
@@ -447,29 +442,17 @@ class DynamicLLMManager {
                     })
                     .filter(m => m && m !== 'none');
 
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/llms/config', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Session-ID': window.sessionId || ''
-                    },
-                    body: JSON.stringify({
-                        role: role,
-                        models: models
-                    })
+            const response = await fetch('api/llms/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || ''
+                },
+                body: JSON.stringify({
+                    role: role,
+                    models: models
                 })
-                : await fetch('api/llms/config', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Session-ID': window.sessionId || ''
-                    },
-                    body: JSON.stringify({
-                        role: role,
-                        models: models
-                    })
-                });
+            });
 
             const data = await response.json();
 

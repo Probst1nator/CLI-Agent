@@ -1,8 +1,0 @@
-# Minimal Agent Requirements
-# LLM Providers
-anthropic>=0.39.0
-google-generativeai>=0.3.0
-ollama>=0.1.0
-
-# Utilities
-chardet>=5.0.0  # Auto-detect file encoding

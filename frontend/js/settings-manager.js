@@ -139,9 +139,7 @@ class SettingsManager {
      */
     async loadPermissions() {
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/permissions')
-                : await fetch('api/permissions');
+            const response = await fetch('api/permissions');
             const data = await response.json();
 
             if (data.status !== 'success') {
@@ -172,9 +170,7 @@ class SettingsManager {
      */
     async loadTools() {
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/tools')
-                : await fetch('api/tools');
+            const response = await fetch('api/tools');
             const data = await response.json();
 
             if (data.status !== 'success') {
@@ -392,23 +388,14 @@ class SettingsManager {
             .map(line => line.trim())
             .filter(Boolean);
 
-        const response = window.backendConnector
-            ? await window.backendConnector.fetch('api/permissions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Session-ID': window.sessionId || ''
-                },
-                body: JSON.stringify({ allow, ask, deny })
-            })
-            : await fetch('api/permissions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Session-ID': window.sessionId || ''
-                },
-                body: JSON.stringify({ allow, ask, deny })
-            });
+        const response = await fetch('api/permissions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Session-ID': window.sessionId || ''
+            },
+            body: JSON.stringify({ allow, ask, deny })
+        });
 
         const data = await response.json();
 
@@ -428,19 +415,12 @@ class SettingsManager {
         try {
             console.log('[SettingsManager] Saving current settings as default template...');
 
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/permissions/save-as-default', {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                })
-                : await fetch('api/permissions/save-as-default', {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                });
+            const response = await fetch('api/permissions/save-as-default', {
+                method: 'POST',
+                headers: {
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
 
             const data = await response.json();
 
@@ -467,19 +447,12 @@ class SettingsManager {
         try {
             console.log('[SettingsManager] Resetting permissions to default template...');
 
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/permissions/reset', {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                })
-                : await fetch('api/permissions/reset', {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                });
+            const response = await fetch('api/permissions/reset', {
+                method: 'POST',
+                headers: {
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
 
             const data = await response.json();
 

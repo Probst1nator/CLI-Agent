@@ -4,10 +4,13 @@ Handles user confirmation for tool execution with allow/deny/always options.
 """
 import asyncio
 import os
+import re
 import threading
 from typing import Any, Optional
 
 from termcolor import colored
+
+from core.permissions.embedding_classifier import tool_call_to_xml
 
 
 async def permission_prompt(
@@ -54,7 +57,7 @@ async def permission_prompt(
         return True
 
     # Format action description
-    action_desc = _format_action_description(tool_name, file_path, command)
+    action_desc = _format_action_description(tool_name, file_path, command, xml_content)
 
     # Try GUI mode first if available
     if hasattr(g, 'GUI_MODE') and g.GUI_MODE:
@@ -86,24 +89,39 @@ async def permission_prompt(
 
 
 def _format_action_description(tool_name: str, file_path: Optional[str],
-                               command: Optional[str]) -> str:
-    """Format human-readable action description."""
-    if tool_name == "bash" and command:
-        return f"Execute bash command: {command}"
-    elif file_path:
-        action_verbs = {
-            "readfile": "Read",
-            "viewfiles": "View",
-            "editfile": "Edit",
-            "writefile": "Write",
-            "appendfile": "Append to",
-            "insertline": "Insert line in",
-            "deletelines": "Delete lines from"
-        }
-        verb = action_verbs.get(tool_name, "Access")
-        return f"{verb} file: {file_path}"
-    else:
-        return f"Execute {tool_name}"
+                               command: Optional[str], xml_content: Optional[str] = None) -> str:
+    """Format action description as colorized raw XML tool call."""
+    # Get raw XML representation
+    raw_xml = tool_call_to_xml(tool_name, file_path, command, xml_content)
+
+    # Apply syntax highlighting with colors
+    # Pattern: <tagname>content</tagname> or <tagname><inner>content</inner></tagname>
+    def colorize_xml(xml_str: str) -> str:
+        """Apply colors to XML: tags in cyan, content in yellow."""
+        # Replace opening/closing tags with colored versions
+        result = re.sub(
+            r'(</?)([\w]+)(>)',
+            lambda m: colored(m.group(1), "cyan") + colored(m.group(2), "cyan", attrs=["bold"]) + colored(m.group(3), "cyan"),
+            xml_str
+        )
+
+        # Color the content between simple tags (non-nested)
+        # Find content that's not within angle brackets
+        parts = re.split(r'(<[^>]+>)', result)
+        colored_parts = []
+        for part in parts:
+            if part.startswith(colored("<", "cyan")):
+                # This is a tag, keep as-is
+                colored_parts.append(part)
+            elif part.strip():
+                # This is content, color it yellow
+                colored_parts.append(colored(part, "yellow"))
+            else:
+                colored_parts.append(part)
+
+        return ''.join(colored_parts)
+
+    return colorize_xml(raw_xml)
 
 
 async def _try_gui_permission_prompt(
@@ -325,7 +343,7 @@ async def _cli_permission_prompt(
     print(colored("🔐 PERMISSION REQUIRED", "cyan", attrs=['bold']))
     print("=" * 60)
     print(f"\n{action_desc}")
-    print(f"\nReason: {reason}")
+    print(f"\nReason: {reason}") if reason else None
     print("\nOptions:")
     print("  [y] Allow once")
     print("  [n] Deny once")
@@ -338,7 +356,7 @@ async def _cli_permission_prompt(
     while True:
         try:
             if get_user_input_func:
-                prompt = colored("Choice [y/n/a/d/?]: ", "cyan")
+                prompt = colored("Choice [Y/n/a/d/?]: ", "cyan")
                 response = await _get_async_input(
                     prompt,
                     get_user_input_func,
@@ -347,7 +365,7 @@ async def _cli_permission_prompt(
                     shared_input
                 )
             else:
-                response = input(colored("Choice [y/n/a/d/?]: ", "cyan"))
+                response = input(colored("Choice [Y/n/a/d/?]: ", "cyan"))
 
             response = response.strip().lower()
 

@@ -9,13 +9,16 @@ import asyncio
 import logging
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aiohttp.web import Application, Request, Response
 
 try:
     from aiohttp import web
     AIOHTTP_AVAILABLE = True
 except ImportError:
-    web = None
+    web = None  # type: ignore
     AIOHTTP_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
@@ -33,7 +36,7 @@ AUDIO_MAGIC_BYTES = {
 }
 
 
-async def upload_audio(request: Any) -> Any:
+async def upload_audio(request: "Request") -> "Response":
     """POST /api/audio/upload
 
     Upload audio blob from browser microphone and transcribe it.
@@ -166,12 +169,16 @@ async def upload_audio(request: Any) -> Any:
         }, status=500)
 
 
-async def generate_tts(request: Any) -> Any:
+async def generate_tts(request: "Request") -> "Response":
     """POST /api/audio/tts
 
     Generate speech from text using TTS.
 
-    Body: {"text": "...", "language": "en"}
+    Body: {"text": "...", "language": "en" (optional)}
+    - If language is provided, it will be used
+    - If not provided, language will be auto-detected from text
+    - Falls back to 'en' if detection fails
+
     Returns: audio/wav stream
     """
     if not AIOHTTP_AVAILABLE:
@@ -189,7 +196,7 @@ async def generate_tts(request: Any) -> Any:
             }, status=400)
 
         text = data.get('text', '').strip()
-        language = data.get('language', 'en')
+        provided_language = data.get('language')
 
         if not text:
             return web.json_response({
@@ -198,7 +205,21 @@ async def generate_tts(request: Any) -> Any:
                 'code': 'INVALID_REQUEST'
             }, status=400)
 
-        logger.info(f"Generating TTS for text: {text[:100]}... (language: {language})")
+        # Detect language if not provided
+        if provided_language:
+            language = provided_language
+            logger.info(f"Using provided language: {language}")
+        else:
+            try:
+                from langdetect import detect
+                detected_lang = detect(text)
+                language = detected_lang
+                logger.info(f"Detected language: {detected_lang}")
+            except Exception as e:
+                logger.warning(f"Language detection failed: {e}, defaulting to 'en'")
+                language = 'en'
+
+        logger.info(f"Generating TTS for text: {text[:50]}... (language: {language})")
 
         # Generate TTS audio
         try:
@@ -247,7 +268,7 @@ async def generate_tts(request: Any) -> Any:
         }, status=500)
 
 
-async def get_voice_status(request: Any) -> Any:
+async def get_voice_status(request: "Request") -> "Response":
     """GET /api/audio/voice_status
 
     Get current voice mode status.
@@ -276,7 +297,7 @@ async def get_voice_status(request: Any) -> Any:
         }, status=500)
 
 
-def setup_routes(app: Any):
+def setup_routes(app: "Application") -> None:
     """Register all audio API routes"""
     app.router.add_post('/api/audio/upload', upload_audio)
     app.router.add_post('/api/audio/tts', generate_tts)

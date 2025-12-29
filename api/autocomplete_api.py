@@ -70,7 +70,7 @@ def extract_path_from_input(input_text: str) -> Optional[str]:
         The extracted path string, or None if no path pattern found
 
     Examples:
-        "yes /home/prob/OneD" -> "/home/prob/OneD"
+        "yes /home/user/OneD" -> "/home/user/OneD"
         "read ~/Documents/file" -> "~/Documents/file"
         "hello world" -> None
     """
@@ -99,7 +99,7 @@ def get_dynamic_path_suggestions(
     Results are cached for 1 second to avoid redundant filesystem scans during typing.
 
     Args:
-        path_prefix: Partial or complete path to scan (e.g., "/home/prob/OneD")
+        path_prefix: Partial or complete path to scan (e.g., "/home/user/OneD")
         max_depth: Maximum directory depth to scan (default: 4)
         max_results: Maximum number of suggestions to return (default: 50)
 
@@ -107,7 +107,7 @@ def get_dynamic_path_suggestions(
         List of suggestion dicts with 'text' and 'score' keys, sorted by relevance
 
     Examples:
-        "/home/prob/OneD" -> [
+        "/home/user/OneD" -> [
             {"text": "/home/user/OneDrive", "score": 95},
             {"text": "/home/user/OneDrive/Documents", "score": 90},
             ...

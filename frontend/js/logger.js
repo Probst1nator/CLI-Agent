@@ -187,26 +187,15 @@ class Logger {
         };
 
         try {
-            // Use BackendConnector if available for multi-user support
-            const fetchPromise = window.backendConnector
-                ? window.backendConnector.fetch('api/logs/client', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Session-ID': window.sessionId || 'unknown',
-                        'X-Request-ID': logEntry.data?.requestId || 'unknown'
-                    },
-                    body: JSON.stringify(payload)
-                })
-                : fetch('api/logs/client', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Session-ID': window.sessionId || 'unknown',
-                        'X-Request-ID': logEntry.data?.requestId || 'unknown'
-                    },
-                    body: JSON.stringify(payload)
-                });
+            const fetchPromise = fetch('api/logs/client', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || 'unknown',
+                    'X-Request-ID': logEntry.data?.requestId || 'unknown'
+                },
+                body: JSON.stringify(payload)
+            });
 
             fetchPromise.catch(err => {
                 // Silently fail to avoid error loops

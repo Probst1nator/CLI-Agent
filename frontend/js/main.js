@@ -728,9 +728,7 @@ class VisualResponseApp {
             const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
             try {
-                const response = window.backendConnector
-                    ? await window.backendConnector.fetch('api/agent/state', { signal: controller.signal })
-                    : await fetch('api/agent/state', { signal: controller.signal });
+                const response = await fetch('api/agent/state', { signal: controller.signal });
                 clearTimeout(timeoutId);
                 const data = await response.json();
                 if (data.status === 'success' && data.state) {
@@ -969,23 +967,14 @@ class VisualResponseApp {
             }
 
             try {
-                const response = window.backendConnector
-                    ? await window.backendConnector.fetch('api/chat/message/edit', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            message_index: parseInt(messageBlock.dataset.messageIndex),
-                            new_content: newContent
-                        })
+                const response = await fetch('api/chat/message/edit', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        message_index: parseInt(messageBlock.dataset.messageIndex),
+                        new_content: newContent
                     })
-                    : await fetch('api/chat/message/edit', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({
-                            message_index: parseInt(messageBlock.dataset.messageIndex),
-                            new_content: newContent
-                        })
-                    });
+                });
 
                 const data = await response.json();
                 if (data.status === 'success') {
@@ -1720,9 +1709,7 @@ class VisualResponseApp {
         // Fetch current chat state to get accurate message count (including system messages)
         let messageIndex;
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/chat/current')
-                : await fetch('api/chat/current');
+            const response = await fetch('api/chat/current');
             const data = await response.json();
             if (data.status === 'success' && data.chat && data.chat.messages) {
                 // The new message will be at the current length index (after it's added by backend)
@@ -2502,11 +2489,7 @@ class VisualResponseApp {
                 // Show loading state
                 this.setRegeneratePromptsLoading(regenerateBtn, true);
 
-                // Build URL using BackendConnector for multi-user compatibility
-                const url = window.backendConnector
-                    ? await window.backendConnector.buildURL('/api/chat/regenerate-prompts')
-                    : '/api/chat/regenerate-prompts';
-
+                const url = '/api/chat/regenerate-prompts';
                 window.logDebug(`Calling regenerate API: ${url}`);
 
                 // Build request body
@@ -4324,9 +4307,7 @@ class VisualResponseApp {
             const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
             try {
-                const response = window.backendConnector
-                    ? await window.backendConnector.fetch('api/profiles', { signal: controller.signal })
-                    : await fetch('api/profiles', { signal: controller.signal });
+                const response = await fetch('api/profiles', { signal: controller.signal });
                 clearTimeout(timeoutId);
                 const data = await response.json();
 
@@ -4492,13 +4473,9 @@ class VisualResponseApp {
     async refreshSelectorsFromBackend() {
         try {
             window.logDebug('📡 Fetching LLM config from: /api/llms');
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/llms', {
-                    headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
-                })
-                : await fetch('api/llms', {
-                    headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
-                });
+            const response = await fetch('api/llms', {
+                headers: window.sessionId ? { 'X-Session-ID': window.sessionId } : {}
+            });
             const data = await response.json();
 
             console.log('📥 Received LLM config:', data);
@@ -4593,11 +4570,7 @@ class VisualResponseApp {
                 if (isEmpty && slotNumber !== "1") {
                     console.log(`🗑️ Profile ${slotNumber} is empty - deleting via HTTP`);
 
-                    const url = window.backendConnector ?
-                        await window.backendConnector.buildURL(`/api/profiles/${slotNumber}`) :
-                        `/api/profiles/${slotNumber}`;
-
-                    await fetch(url, {
+                    await fetch(`/api/profiles/${slotNumber}`, {
                         method: 'DELETE',
                         headers: { 'X-Session-ID': window.sessionId || '' }
                     });
@@ -4612,11 +4585,7 @@ class VisualResponseApp {
 
                 // Save via HTTP POST
                 console.log(`💾 Saving profile ${slotNumber} via HTTP POST`);
-                const url = window.backendConnector ?
-                    await window.backendConnector.buildURL('/api/profiles/save') :
-                    '/api/profiles/save';
-
-                const response = await fetch(url, {
+                const response = await fetch('/api/profiles/save', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -5132,13 +5101,8 @@ window.sendPermissionResponseWithRule = async function(permissionId, rule, permi
     console.log('sendPermissionResponseWithRule called', { permissionId, rule, permissionType });
 
     try {
-        // Build URL for multi-user support
-        const url = window.backendConnector
-            ? await window.backendConnector.buildURL('/api/permissions/add-rule')
-            : '/api/permissions/add-rule';
-
         // Save permission to backend via REST API
-        const response = await fetch(url, {
+        const response = await fetch('/api/permissions/add-rule', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -5426,9 +5390,7 @@ class ConsoleLogManager {
 
     async fetchAvailableLogs() {
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/logs/list')
-                : await fetch('api/logs/list');
+            const response = await fetch('api/logs/list');
             const result = await response.json();
 
             if (result.status === 'success') {
@@ -5447,9 +5409,7 @@ class ConsoleLogManager {
         if (this.logSource !== 'file') return;
 
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch(`/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`)
-                : await fetch(`/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`);
+            const response = await fetch(`/api/logs/tail?log=${encodeURIComponent(this.selectedLogFile)}&lines=${lines}`);
             const result = await response.json();
 
             if (result.status === 'success') {
@@ -5508,10 +5468,7 @@ class ConsoleLogManager {
         this.disconnectSSE();
 
         try {
-            // Note: EventSource requires a URL string, so we still use buildURL here
-            const url = window.backendConnector
-                ? await window.backendConnector.buildURL(`/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`)
-                : `/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`;
+            const url = `/api/logs/tail-stream?log=${encodeURIComponent(logFile)}`;
             this.sseConnection = new EventSource(url);
 
             this.sseConnection.onmessage = (event) => {
@@ -5889,68 +5846,10 @@ let consoleLogManager = null;
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOM loaded, checking dependencies...');
 
-    // Initialize Identity Manager (UUID-based user identification)
-    if (window.IdentityManager) {
-        window.identityManager = new window.IdentityManager();
-        console.log('Identity Manager initialized');
+    // Initialize core modules
+    if (window.ToolRegistry) {
+        window.ToolRegistry.initialize(true);
     }
-
-    // Initialize Auth Manager (JWT authentication for SaaS mode)
-    if (window.AuthManager && window.identityManager) {
-        window.authManager = new window.AuthManager(window.identityManager);
-        console.log('Auth Manager initialized');
-    }
-
-    // Initialize Backend Connector (discovers backend container)
-    if (window.BackendConnector && window.identityManager) {
-        window.backendConnector = new window.BackendConnector(
-            window.identityManager,
-            window.authManager  // Pass auth manager (null in local mode is OK)
-        );
-        console.log('Backend Connector initialized');
-
-        // Start discovery immediately (don't wait for first API call)
-        window.backendConnector.waitForReady().then(() => {
-            console.log('Backend ready, triggering API reloads...');
-            // Reload APIs now that backend is ready
-            if (window.ToolRegistry) {
-                window.ToolRegistry.initialize(true); // Force reload
-            }
-            if (window.ToolManager) {
-                window.ToolManager.refresh();
-            }
-            if (window.app) {
-                window.app.fetchAgentState();
-                window.app.loadProfileSlots();
-                // Reload LLM models for all selectors
-                [window.app.plannerLLMSelector, window.app.routerLLMSelector, 
-                 window.app.overrideLLMSelector, window.app.primaryLLMSelector,
-                 window.app.fallback1LLMSelector, window.app.fallback2LLMSelector
-                ].forEach(selector => {
-                    if (selector) selector.loadModelsFromServer();
-                });
-            }
-            if (window.chatState) {
-                window.chatState.loadCurrentChat();
-            }
-            if (window.chatHistory) {
-                window.chatHistory.loadChats();
-            }
-        });
-
-        // Start keep-alive pings (update activity every minute)
-        window.backendConnector.startActivityUpdates(60000);
-    }
-
-    // Initialize Container Controls (wipe/reload functionality)
-    if (window.ContainerControls && window.identityManager && window.backendConnector) {
-        window.containerControls = new window.ContainerControls(window.identityManager, window.backendConnector);
-        console.log('Container Controls initialized');
-    }
-
-    // Note: ToolRegistry initialization removed from here - it will be initialized
-    // after backend discovery completes (see waitForReady() callback above)
-    // This prevents 401 errors from attempting API calls before JWT auth is ready
 
     // Initialize console log manager
     consoleLogManager = new ConsoleLogManager();

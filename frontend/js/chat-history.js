@@ -190,9 +190,7 @@ class ChatHistorySidebar {
      */
     async loadChats() {
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/chat/archives')
-                : await fetch('api/chat/archives');
+            const response = await fetch('api/chat/archives');
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -243,9 +241,7 @@ class ChatHistorySidebar {
         this.content.innerHTML = `<div class="chat-history-loading"><div class="loading-spinner"></div><div class="loading-text">${loadingMessage}</div></div>`;
 
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch(`/api/chat/search?q=${encodeURIComponent(searchQuery)}`)
-                : await fetch(`/api/chat/search?q=${encodeURIComponent(searchQuery)}`);
+            const response = await fetch(`/api/chat/search?q=${encodeURIComponent(searchQuery)}`);
             const data = await response.json();
 
             if (data.status === 'success') {
@@ -576,13 +572,9 @@ class ChatHistorySidebar {
         if (!confirmed) return;
 
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch(`/api/chat/archive/${chatId}`, {
-                    method: 'DELETE'
-                })
-                : await fetch(`/api/chat/archive/${chatId}`, {
-                    method: 'DELETE'
-                });
+            const response = await fetch(`/api/chat/archive/${chatId}`, {
+                method: 'DELETE'
+            });
             const data = await response.json();
 
             if (data.status === 'success') {

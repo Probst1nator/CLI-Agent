@@ -284,30 +284,17 @@ class AutocompleteManager {
     try {
       window.visualLogger.debug(`[Autocomplete] Fetching suggestions for: "${input}"`);
 
-      // Build API URL (handle both local and multi-user modes)
-      const response = window.backendConnector
-        ? await window.backendConnector.fetch('api/autocomplete', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Session-ID': window.sessionId || '',
-            },
-            body: JSON.stringify({
-              input: input,
-              max_suggestions: this.options.maxSuggestions,
-            }),
-          })
-        : await fetch('api/autocomplete', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Session-ID': window.sessionId || '',
-            },
-            body: JSON.stringify({
-              input: input,
-              max_suggestions: this.options.maxSuggestions,
-            }),
-          });
+      const response = await fetch('api/autocomplete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': window.sessionId || '',
+        },
+        body: JSON.stringify({
+          input: input,
+          max_suggestions: this.options.maxSuggestions,
+        }),
+      });
 
       const data = await response.json();
 
@@ -342,32 +329,18 @@ class AutocompleteManager {
       // Create new abort controller for this request
       this.customSuggestionsAbortController = new AbortController();
 
-      // Build API URL
-      const response = window.backendConnector
-        ? await window.backendConnector.fetch('api/autocomplete/custom', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Session-ID': window.sessionId || '',
-            },
-            body: JSON.stringify({
-              input: input,
-              max_suggestions: this.options.maxSuggestions,
-            }),
-            signal: this.customSuggestionsAbortController.signal,
-          })
-        : await fetch('api/autocomplete/custom', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Session-ID': window.sessionId || '',
-            },
-            body: JSON.stringify({
-              input: input,
-              max_suggestions: this.options.maxSuggestions,
-            }),
-            signal: this.customSuggestionsAbortController.signal,
-          });
+      const response = await fetch('api/autocomplete/custom', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': window.sessionId || '',
+        },
+        body: JSON.stringify({
+          input: input,
+          max_suggestions: this.options.maxSuggestions,
+        }),
+        signal: this.customSuggestionsAbortController.signal,
+      });
 
       const data = await response.json();
 
@@ -732,30 +705,16 @@ class AutocompleteManager {
     try {
       window.visualLogger.debug(`[Autocomplete] Tracking prompt click: "${prompt}"`);
 
-      // Build API URL
-      const fetchPromise = window.backendConnector
-        ? window.backendConnector.fetch('api/chat/track-prompt-click', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Session-ID': window.sessionId || '',
-            },
-            body: JSON.stringify({
-              prompt: prompt,
-            }),
-          })
-        : fetch('api/chat/track-prompt-click', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Session-ID': window.sessionId || '',
-            },
-            body: JSON.stringify({
-              prompt: prompt,
-            }),
-          });
-
-      await fetchPromise;
+      await fetch('api/chat/track-prompt-click', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': window.sessionId || '',
+        },
+        body: JSON.stringify({
+          prompt: prompt,
+        }),
+      });
 
       window.visualLogger.debug('[Autocomplete] Prompt click tracked successfully');
     } catch (error) {
@@ -772,18 +731,11 @@ class AutocompleteManager {
     try {
       window.visualLogger.debug('[Autocomplete] Fetching suggested prompts');
 
-      // Build API URL (handle both local and multi-user modes)
-      const response = window.backendConnector
-        ? await window.backendConnector.fetch('api/chat/suggested-prompts', {
-            headers: {
-              'X-Session-ID': window.sessionId || '',
-            },
-          })
-        : await fetch('api/chat/suggested-prompts', {
-            headers: {
-              'X-Session-ID': window.sessionId || '',
-            },
-          });
+      const response = await fetch('api/chat/suggested-prompts', {
+        headers: {
+          'X-Session-ID': window.sessionId || '',
+        },
+      });
 
       const data = await response.json();
 

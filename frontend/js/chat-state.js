@@ -150,19 +150,12 @@ class ChatStateManager {
             const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout for chat load
 
             try {
-                const response = window.backendConnector
-                    ? await window.backendConnector.fetch('api/chat/current', {
-                        headers: {
-                            'X-Session-ID': window.sessionId || ''
-                        },
-                        signal: controller.signal
-                    })
-                    : await fetch('api/chat/current', {
-                        headers: {
-                            'X-Session-ID': window.sessionId || ''
-                        },
-                        signal: controller.signal
-                    });
+                const response = await fetch('api/chat/current', {
+                    headers: {
+                        'X-Session-ID': window.sessionId || ''
+                    },
+                    signal: controller.signal
+                });
                 clearTimeout(timeoutId);
 
                 const data = await response.json();
@@ -208,19 +201,12 @@ class ChatStateManager {
      */
     async loadChat(chatId) {
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch(`/api/chat/load/${chatId}`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                })
-                : await fetch(`/api/chat/load/${chatId}`, {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                });
+            const response = await fetch(`/api/chat/load/${chatId}`, {
+                method: 'POST',
+                headers: {
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
 
             const data = await response.json();
 
@@ -247,19 +233,12 @@ class ChatStateManager {
      */
     async startNewChat() {
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/chat/new', {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                })
-                : await fetch('api/chat/new', {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                });
+            const response = await fetch('api/chat/new', {
+                method: 'POST',
+                headers: {
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
 
             const data = await response.json();
 

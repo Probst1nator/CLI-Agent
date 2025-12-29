@@ -29,6 +29,7 @@ odfpy>=1.4.1  # OpenDocument formats (.odt, .ods, .odp, .odg)
 chromadb>=0.4.0  # Vector database for semantic search
 SpeechRecognition>=3.8.0  # Speech-to-text functionality
 vosk>=0.3.42  # Offline speech recognition
+langdetect>=1.0.9  # Language detection for TTS
 
 # Academic paper search dependencies
 arxiv>=2.0.0  # arXiv API for academic paper search

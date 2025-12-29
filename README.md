@@ -160,4 +160,4 @@ The agent uses environment variables for configuration:
 
 ## License
 
-This project is licensed under the Apache License, Version 2.0.
+This project is licensed under the MIT License.

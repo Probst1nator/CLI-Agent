@@ -57,6 +57,7 @@ coverage.xml
 
 # Environment variables
 .env
+.agents.env
 .venv
 env/
 venv/
@@ -116,4 +117,3 @@ IDEAS
 /node_modules/
 /dist/
 /.vite/
-package-lock.json

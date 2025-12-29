@@ -799,23 +799,14 @@ class AudioManager {
             const sessionId = window.sessionId || '';
             console.log('[AudioManager] Uploading to:', endpoint);
             console.log('[AudioManager] Session ID:', sessionId);
-            console.log('[AudioManager] Using backendConnector:', !!window.backendConnector);
 
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': sessionId
-                    },
-                    body: formData
-                })
-                : await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'X-Session-ID': sessionId
-                    },
-                    body: formData
-                });
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'X-Session-ID': sessionId
+                },
+                body: formData
+            });
 
             console.log('[AudioManager] Response received, status:', response.status);
             console.log('[AudioManager] Response ok:', response.ok);
@@ -885,23 +876,14 @@ class AudioManager {
             this.isTTSActive = true;
             this.showTTSStatus('Generating speech...');
 
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/audio/tts', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Session-ID': window.sessionId || ''
-                    },
-                    body: JSON.stringify({ text, language })
-                })
-                : await fetch('api/audio/tts', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Session-ID': window.sessionId || ''
-                    },
-                    body: JSON.stringify({ text, language })
-                });
+            const response = await fetch('api/audio/tts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Session-ID': window.sessionId || ''
+                },
+                body: JSON.stringify({ text, language })
+            });
 
             if (!response.ok) {
                 const error = await response.json();
@@ -1271,17 +1253,11 @@ class AudioManager {
      */
     async getVoiceStatus() {
         try {
-            const response = window.backendConnector
-                ? await window.backendConnector.fetch('api/audio/voice_status', {
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                })
-                : await fetch('api/audio/voice_status', {
-                    headers: {
-                        'X-Session-ID': window.sessionId || ''
-                    }
-                });
+            const response = await fetch('api/audio/voice_status', {
+                headers: {
+                    'X-Session-ID': window.sessionId || ''
+                }
+            });
 
             if (!response.ok) {
                 throw new Error('Failed to get voice status');

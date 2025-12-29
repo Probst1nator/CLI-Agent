@@ -30,7 +30,7 @@ def sanitize_path(absolute_path: str) -> str:
     Convert an absolute path to a safe directory name.
 
     Examples:
-        ~/repos/CLI-Agent -> home_user_repos_CLI-Agent
+        /home/user/repos/CLI-Agent -> home_user_repos_CLI-Agent
         /var/www/my-site -> var_www_my-site
         C:\\Users\\Name\\Project -> C_Users_Name_Project
 
@@ -232,6 +232,12 @@ def migrate_local_to_global(cwd: Optional[str] = None) -> bool:
     # Check if it's a file (the wrapper script) rather than a directory
     if not local_storage.is_dir():
         logger.debug(f".cli-agent in {cwd} is a file, not a directory - skipping migration")
+        return True
+
+    # Check if this is the global storage location (contains projects/ subdirectory)
+    # If so, don't migrate it to itself!
+    if (local_storage / 'projects').exists() and (local_storage / 'projects').is_dir():
+        logger.debug(f".cli-agent in {cwd} is the global storage location, skipping migration")
         return True
 
     project_path = get_project_storage_path(cwd)
