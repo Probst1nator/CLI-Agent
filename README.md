@@ -1,14 +1,22 @@
 # CLI-Agent
 
-A powerful command-line AI agent framework for autonomous task execution and coding assistance.
+A flexible AI agent playground for experimentation
+PS: The name "CLI-Agent" is inaccurate, it has grown to fully support a webapp mode via --gui overtime
 
-# CLI Interface
+## QA
+Q: Would I personally recommend you to use this? 
+A: No. Check out the hermes-agent, openclaw or claude-code for well maintained agents.
+
+Q: What is this?
+A: Something between a portfolio piece and documentation.
+
+## CLI Interface
 ![CLI Interface](assets/agent_demo.png)
 
-# Web Interface
+## Web Interface
 ![CLI Interface](assets/agent_gui_demo.png)
 
-## Overview
+### Overview
 
 CLI-Agent is an AI agent framework that provides:
 - Multi-provider LLM support (OpenAI, Anthropic, Google Gemini, Groq, Ollama)
@@ -18,7 +26,7 @@ CLI-Agent is an AI agent framework that provides:
 - Path-aware permission system
 - Audio processing with speech recognition and TTS
 
-## Features
+### Features
 
 - **Multi-LLM Support**: Seamlessly switch between AI providers (OpenAI, Anthropic, Google, Groq, Ollama)
 - **Smart Tool Management**: Vector-based tool discovery and context-aware suggestions
@@ -29,16 +37,16 @@ CLI-Agent is an AI agent framework that provides:
 - **Centralized Storage**: Per-project chat isolation in `~/.cli-agent/projects/` with auto-migration
 - **Comprehensive Testing**: Full test suite with hierarchical test levels
 
-## Deployment Options
+### Deployment Options
 
-### 1. Local Development (Single User)
+#### 1. Local Development (Single User)
 ```bash
 python main.py              # CLI mode
 python main.py --gui        # Web interface
 python main.py --api        # API server only
 ```
 
-### 2. Isolated Mode (Docker - Single Run) 🆕
+#### 2. Isolated Mode (Docker - Single Run) 🆕
 Run in a fully isolated Docker container with a single flag:
 
 ```bash
@@ -53,7 +61,7 @@ python main.py --isolated --gui  # Web interface in container
 **Benefits**: Full isolation, no dependency conflicts, auto-syncs latest code
 **See:** [Isolated Mode Docs](docker_files/docs/ISOLATED_MODE.md) for details.
 
-## Installation
+### Installation
 
 1. Clone the repository:
 ```bash
@@ -87,22 +95,22 @@ cp .env.example .env
 # Edit .env with your API keys
 ```
 
-## Usage
+### Usage
 
-### Basic Usage
+#### Basic Usage
 ```bash
 python main.py
 ```
 
-### Running Tests
+#### Running Tests
 ```bash
 python run_tests.py --quick
 python run_tests.py --full
 ```
 
-## Architecture
+### Architecture
 
-### Single-User Architecture
+#### Single-User Architecture
 
 - `core/`: Core AI infrastructure (LLM routing, chat, providers)
 - `shared/`: Shared utilities (audio, web, search, RAG)
@@ -112,7 +120,7 @@ python run_tests.py --full
 - `tests/`: Comprehensive test suite including tool testing framework
 - `docs/`: Documentation and architecture guides
 
-## Configuration
+### Configuration
 
 The agent uses environment variables for configuration:
 - `ANTHROPIC_API_KEY`: Anthropic/Claude API key
@@ -121,12 +129,12 @@ The agent uses environment variables for configuration:
 - `GROQ_API_KEY`: Groq API key
 - `BRAVE_API_KEY`: Brave Search API key
 
-## Contributing
+### Contributing
 
 1. Run tests: `python run_tests.py`
 2. Check code formatting: `ruff format .`
 3. Run linting: `ruff check .`
 
-## License
+### License
 
 This project is licensed under the MIT License.
