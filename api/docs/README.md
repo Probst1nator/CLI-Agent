@@ -179,6 +179,5 @@ The API layer delegates to agent commands:
 - Backend/Frontend architecture: `api/docs/BACKEND_FRONTEND_ARCHITECTURE.md`
 - Chat state sync: `api/docs/CHAT_STATE_SYNC.md`
 - Session sharing: `api/docs/SESSION_SHARING.md`
-- Multi-user architecture: `api/docs/MULTI_USER_ARCHITECTURE.md`
 - Frontend integration: `/frontend/docs/README.md`
 - Legacy architecture: `/docs/VISUALRESPONSE_ARCHITECTURE.md` (historical)

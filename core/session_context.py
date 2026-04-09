@@ -2,12 +2,11 @@
 Session Context for Multi-Tab Support
 
 Provides session-scoped state management to enable multiple browser tabs
-to connect to the same CLI-Agent container while maintaining independent
+to connect to the same CLI-Agent instance while maintaining independent
 chat histories and settings.
 
 Each WebSocket connection gets a unique session_id and corresponding
-SessionContext instance. This replaces the global state pattern and
-enables true multi-user/multi-tab support.
+SessionContext instance.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ if TYPE_CHECKING:
 @dataclass
 class SessionContext:
     """
-    Per-session isolated state for multi-tab support within a container
+    Per-session isolated state for multi-tab support
 
     Attributes:
         session_id: Unique identifier for this session
@@ -35,8 +34,6 @@ class SessionContext:
         pending_permission: Currently pending permission request (if any)
         created_at: When this session was created
         last_activity: Last activity timestamp for cleanup
-        user_id: Future: Link to user account system
-        retention_days: Container retention period (future: per-user override)
     """
     session_id: str
     chat: Chat  # Forward reference handled by __future__ annotations
@@ -47,10 +44,6 @@ class SessionContext:
     pending_permission: Optional[dict] = None  # Tracks pending permission request
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_activity: datetime = field(default_factory=datetime.utcnow)
-
-    # Future: user account integration
-    user_id: Optional[str] = None
-    retention_days: int = 7  # Default, will be overridden by user account settings
 
     def update_activity(self):
         """Update last activity timestamp"""

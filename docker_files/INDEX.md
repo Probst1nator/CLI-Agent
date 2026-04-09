@@ -6,22 +6,13 @@
 
 | File | Description |
 |------|-------------|
-| `Dockerfile.backend` | BACKEND file: Dockerfile |
-| `Dockerfile.container-manager` | CONTAINER-MANAGER file: Dockerfile |
-| `Dockerfile.frontend` | FRONTEND file: Dockerfile |
-| `Dockerfile.isolated-exec` | ISOLATED-EXEC file: Dockerfile |
-| `README_CONTAINER_MANAGER_SECURITY.md` | Documentation: README CONTAINER MANAGER SECURITY |
-| `README_EGRESS_FILTERING.md` | Documentation: README EGRESS FILTERING |
-| `README_SECCOMP.md` | Documentation: README SECCOMP |
-| `docker-compose.infrastructure.yml` | Docker Compose configuration for infrastructure |
-| `nginx.conf` | Configuration: nginx |
-| `remove-egress-filtering.sh` | Shell script: remove-egress-filtering |
-| `seccomp-profile.json` | Configuration: seccomp-profile |
-| `setup-egress-filtering.sh` | Shell script: setup-egress-filtering |
+| `Dockerfile.backend` | Full backend image |
+| `Dockerfile.frontend` | Frontend-only image |
+| `Dockerfile.isolated-exec` | Used by `--isolated` mode for secure single-run execution |
 
 ## Subdirectories
 
-- `traefik/`
+- `docs/` - Deployment documentation
 
 ---
 

@@ -40,10 +40,9 @@ jobs:
       - name: Run linting
         run: |
           ruff check . || true
-          black --check . || true
 
-  deploy:
-    name: Build and Deploy
+  build:
+    name: Build Docker Images
     needs: test
     runs-on: self-hosted
     if: github.event_name == 'push'
@@ -52,56 +51,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker images locally
+      - name: Build Docker images
         run: |
           cd docker_files
-
-          # Build backend image
           docker build -f Dockerfile.backend -t cli-agent-backend:latest ..
-
-          # Build frontend image
           docker build -f Dockerfile.frontend -t cli-agent-frontend:latest ..
-
-          # Build container manager image
-          docker build -f Dockerfile.container-manager -t cli-agent-manager:latest ..
-
-      - name: Restart infrastructure services
-        run: |
-          # Load environment variables from parent directory
-          if [ -f ../.env ]; then
-            export $(cat ../.env | grep -v '^#' | xargs)
-          fi
-
-          cd docker_files
-          docker compose -f docker-compose.infrastructure.yml up -d --force-recreate
-
-      - name: Rolling update of backend containers
-        run: |
-          echo "Starting rolling update of backend containers..."
-          CONTAINERS=$(docker ps --filter "name=cli-agent-" --format "{{.Names}}" | grep -v "cli-agent-container-manager\|cli-agent-frontend\|cli-agent-traefik\|cli-agent-isolated" || true)
-
-          for container in $CONTAINERS; do
-            echo "Restarting $container..."
-            docker restart $container
-            sleep 2
-          done
+          docker build -f Dockerfile.isolated-exec -t cli-agent-isolated:latest ..
 
       - name: Clean up old images
         run: |
           docker image prune -f
 
-      - name: Verify deployment
+      - name: Verify images
         run: |
-          echo "=== Container Status ==="
-          docker ps --filter "name=cli-agent-" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
-
-          echo ""
-          echo "=== Container Manager Health ==="
-          curl -f http://localhost:8080/health || echo "❌ Container Manager unhealthy"
-
-          echo ""
-          echo "=== Frontend Health ==="
-          curl -f http://localhost/ -I || echo "❌ Frontend unhealthy"
-
-          echo ""
-          echo "✅ Deployment complete!"
+          echo "=== Built Images ==="
+          docker images --filter "reference=cli-agent-*" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"

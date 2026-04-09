@@ -17,7 +17,6 @@ CLI-Agent is an AI agent framework that provides:
 - Docker isolation for secure execution
 - Path-aware permission system
 - Audio processing with speech recognition and TTS
-- Multi-user SaaS architecture (experimental)
 
 ## Features
 
@@ -53,19 +52,6 @@ python main.py --isolated --gui  # Web interface in container
 
 **Benefits**: Full isolation, no dependency conflicts, auto-syncs latest code
 **See:** [Isolated Mode Docs](docker_files/docs/ISOLATED_MODE.md) for details.
-
-### 3. Multi-User Production (Docker) - EXPERIMENTAL ⚠️
-
-**Status**: Experimental - not production-tested. See [INFRASTRUCTURE_STATUS.md](infrastructure/docs/INFRASTRUCTURE_STATUS.md).
-
-Deploy CLI-Agent as a web service where each user gets an isolated container:
-
-```bash
-./saas_scripts/build_all.sh           # Build images
-./saas_scripts/deploy_infrastructure.sh  # Deploy
-```
-
-**Docs**: [Multi-User Architecture](api/docs/MULTI_USER_ARCHITECTURE.md) | [Deployment Guide](docker_files/docs/DEPLOYMENT.md)
 
 ## Installation
 
@@ -126,23 +112,6 @@ python run_tests.py --full
 - `tests/`: Comprehensive test suite including tool testing framework
 - `docs/`: Documentation and architecture guides
 
-### Multi-User Architecture
-
-```
-Traefik → Frontend (Nginx) → Container Manager (FastAPI)
-                            → Backend Containers (per-UUID)
-```
-
-Each user gets:
-- Unique UUID (client-generated)
-- Isolated Docker container
-- 7-day data retention (configurable)
-- Independent session state (multi-tab support)
-
-**See:**
-- [Multi-User Architecture](api/docs/MULTI_USER_ARCHITECTURE.md) - Architecture details
-- [Deployment Guide](docker_files/docs/DEPLOYMENT.md) - Production deployment
-
 ## Configuration
 
 The agent uses environment variables for configuration:
@@ -155,7 +124,7 @@ The agent uses environment variables for configuration:
 ## Contributing
 
 1. Run tests: `python run_tests.py`
-2. Check code formatting: `black .`
+2. Check code formatting: `ruff format .`
 3. Run linting: `ruff check .`
 
 ## License
