@@ -7,7 +7,7 @@ name = "cli-agent-shared"
 version = "1.0.0"
 description = "Shared infrastructure for CLI-Agent tools"
 authors = [
-    {name = "Probst1nator", email = "your-email@example.com"}
+    {name = "CLI-Agent Contributors"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
