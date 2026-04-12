@@ -118,7 +118,6 @@ python run_tests.py --full
 - `api/`: Backend API layer (WebSocket, REST endpoints)
 - `frontend/`: Web UI assets (HTML, CSS, JavaScript)
 - `tests/`: Comprehensive test suite including tool testing framework
-- `docs/`: Documentation and architecture guides
 
 ### Configuration
 

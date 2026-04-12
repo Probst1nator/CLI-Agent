@@ -101,3 +101,4 @@ See `.env.example` for full configuration.
 - Ruff for linting/formatting (line-length 88)
 - Pyright for type checking
 - Prettier/ESLint for frontend JS
+- `ruff check . --fix` is safe; never use `--unsafe-fixes` (removes variable assignments, breaks code)
